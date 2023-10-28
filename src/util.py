@@ -1,50 +1,67 @@
 import tkinter as tk
+import shapely as sp
+from collections import defaultdict
 
-class Rectangle:
-    def __init__(self, canvas, x1, y1, x2, y2, color='black'):
-        self.canvas = canvas
-        self.x1 = x1
-        self.y1 = y1
-        self.x2 = x2
-        self.y2 = y2
-        self.color = color
-        self.rect = None
+def def_value():
+    return []
 
-    def draw(self):
-        self.rect = self.canvas.create_rectangle(self.x1, self.y1, self.x2, self.y2, fill=self.color)
+class Cell:
+    def __init__(self, type, id, coords, pins):
+        self.shape = sp.Polygon(coords) #shapely object
+        self.pins = pins
+        self.type = type #type of thing
+        self.id = id # number
+    
 
-    def move(self, dx, dy):
-        self.canvas.move(self.rect, dx, dy)
+class Wire: #worry about routing later.
+    def __init__(self, id, coords):
+        self.shape = sp.Polygon(coords)
+        self.id = id
+    
 
-    def delete(self):
-        self.canvas.delete(self.rect)
+class Floorplan:
+    def __init__(self):
+        self.width = 100
+        self.height = 100
+        self.width_space = 0.5
+        self.height_space = 0.5
+        self.num_layers = 5
 
-class CanvasApp:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("Rectangle Drawing App")
+        self.grid = [[[0 for _ in range(self.width)] for _ in range(self.height)] for _ in range(self.num_layers)]
+        
+        self.cells = {} #empty during inference
 
-        self.canvas = tk.Canvas(root, width=400, height=400)
-        self.canvas.pack()
+        self.wires = [] #empty during inference
 
-        self.rectangles = []
+    def push_cell(self, ):
+        pass
 
-        self.canvas.bind("<Button-1>", self.on_canvas_click)
-        self.canvas.bind("<Button-3>", self.on_canvas_right_click)
+    def push_wire(self, layer, ):
+        pass
 
-    def on_canvas_click(self, event):
-        x1, y1 = event.x, event.y
-        x2, y2 = x1 + 50, y1 + 50
-        rectangle = Rectangle(self.canvas, x1, y1, x2, y2, 'blue')
-        rectangle.draw()
-        self.rectangles.append(rectangle)
+    def valid_routing(self): #check wires
+        pass
+    
+    def valid_cells(self): #check cells: check area, every instance seen only once
+        macros = self.grid[0]
+        c = defaultdict(def_value)
+        for i in range(self.width):
+            for j in range(self.height):
+                if isinstance(self.grid[0][i][j], Cell):
+                    c[self.grid[0][i][j].id].append((i,j))
+        for id in self.cells.keys:
+            if c[id]:
+                s = sp.polygon(c[id]) #we have  a polygon
+                if s.geom_type != 'Polygon' or self.cells[id].shape.length != s.length:
+                    return False
+            else:
+                return False
+        return True
+            
+                    
+        
 
-    def on_canvas_right_click(self, event):
-        if self.rectangles:
-            last_rectangle = self.rectangles.pop()
-            last_rectangle.delete()
+        
 
 if __name__ == "__main__":
-    root = tk.Tk()
-    app = CanvasApp(root)
-    root.mainloop()
+    pass #random initialization of a floorplan
