@@ -1,0 +1,22 @@
+name: py310practice
+channels:
+  - defaults
+dependencies:
+  - python=3.10.4
+  - cudatoolkit
+  - pip
+  - pip:
+    - torch
+    - torchvision
+    - termcolor
+    - omegaconf
+    - gym
+    - dm-control
+    - pandas
+    - wandb
+    - moviepy
+    - imageio
+    - ipdb
+    - matplotlib
+    - hydra-core
+    - rich
