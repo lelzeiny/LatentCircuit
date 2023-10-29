@@ -28,3 +28,7 @@ def get_positional_encodings(num_pos, model_dim):
     theta = pos_idx/torch.pow(10000.0, idx)
     embeddings = torch.cat((torch.sin(theta), torch.cos(theta)), dim = -1) # (pos, d_m)
     return embeddings[:, :model_dim]
+
+def get_none_encodings(num_pos, model_dim):
+    embeddings = torch.arange(num_pos, dtype=torch.float32).unsqueeze(-1).expand(-1, model_dim) # (pos, d_m)
+    return embeddings

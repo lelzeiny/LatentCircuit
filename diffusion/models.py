@@ -7,14 +7,14 @@ import numpy as np
 from omegaconf import open_dict
 
 class ConvNet(nn.Module):
-    def __init__(self, in_channels, image_size, cnn_sizes, cnn_strides, cnn_depths, **kwargs):
+    def __init__(self, in_channels, image_shape, filter_sizes, cnn_strides, cnn_depths, padding="valid", **kwargs):
         super().__init__()
         cnn_depths = [in_channels] + cnn_depths
         self._conv_layers = []
-        for size, stride, in_depth, out_depth in zip(cnn_sizes, cnn_strides, cnn_depths[:-1], cnn_depths[1:]):
-            self._conv_layers.append(nn.Conv2d(in_depth, out_depth, size, stride=stride))
+        for size, stride, in_depth, out_depth in zip(filter_sizes, cnn_strides, cnn_depths[:-1], cnn_depths[1:]):
+            self._conv_layers.append(nn.Conv2d(in_depth, out_depth, size, stride=stride, padding=padding))
             self._conv_layers.append(nn.ReLU())
-        # fc_in_size = get_feature_size((in_channels, image_size, image_size), self._conv_layers)
+        self.out_shape = get_feature_shape((in_channels, *image_shape), self._conv_layers)
         self._conv = nn.Sequential(*self._conv_layers)
 
     def __call__(self, x):
@@ -23,10 +23,105 @@ class ConvNet(nn.Module):
         x = self._conv(x)
         return x
 
-# class UnetBlock(nn.Module):
-#     def __init__(self):
-#         super().__init__()
+class UNet(nn.Module): # conditional UNet class used for diffusion models
+    encodings = {"sinusoid": pos_encoding.get_positional_encodings, "none": pos_encoding.get_none_encodings}
 
+    def __init__(self, in_channels, out_channels, image_shape, cnn_depths, layers_per_block, filter_size, pooling_factor, encoding_type, encoding_dim, max_diffusion_steps, device="cpu", **kwargs):
+        # length of CNN_depths determines how many levels u-net has
+        super().__init__()
+        self._down_conv_blocks = []
+        self._up_conv_blocks = []
+        self._transpose_conv_layers = []
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.image_shape = image_shape
+        self.cnn_depths = cnn_depths
+        self.filter_size = filter_size
+        self.pooling_factor = pooling_factor
+        self.encoding_dim = encoding_dim
+        self.max_diffusion_steps = max_diffusion_steps
+
+        # positional encoding for t
+        self.encoding = UNet.encodings[encoding_type](max_diffusion_steps, encoding_dim).to(device)
+
+        # create downward branch
+        level_in_shape = (in_channels, *image_shape)
+        for i, cnn_depth in enumerate(cnn_depths):
+            level_net = ConvNet(
+                level_in_shape[0]+encoding_dim if i==(len(cnn_depths)-1) else level_in_shape[0], 
+                level_in_shape[1:], 
+                [filter_size] * layers_per_block,
+                [1] * layers_per_block,
+                [cnn_depth] * layers_per_block,
+                padding = "same",
+                )
+            level_out_shape = level_net.out_shape
+            level_in_shape = (level_out_shape[0], level_out_shape[1]//pooling_factor, level_out_shape[2]//pooling_factor)
+            self._down_conv_blocks.append(level_net)
+            print(level_in_shape, level_out_shape)
+        self._down_conv_blocks = nn.ModuleList(self._down_conv_blocks)
+
+        # create upsampling branch
+        for i in range(len(cnn_depths)-2, -1, -1):
+            level_in_shape = (2 * cnn_depths[i], level_out_shape[1] * pooling_factor, level_out_shape[2] * pooling_factor)
+            print(cnn_depths[i], level_in_shape)
+            transpose_layer = nn.ConvTranspose2d(level_out_shape[0], cnn_depths[i], kernel_size=1, stride=pooling_factor, padding=0, output_padding=pooling_factor-1)
+            # transpose_layer = nn.Sequential(
+            #     nn.Upsample(scale_factor=pooling_factor, mode="nearest"),
+            #     nn.Conv2d(level_out_shape[0], cnn_depths[i], kernel_size=pooling_factor, stride=1, padding="same"),
+            # )
+            level_net = ConvNet(
+                level_in_shape[0], 
+                level_in_shape[1:], 
+                [filter_size] * layers_per_block,
+                [1] * layers_per_block,
+                [cnn_depths[i]] * layers_per_block,
+                padding = "same",
+                )
+            level_out_shape = level_net.out_shape
+            self._transpose_conv_layers.append(transpose_layer)
+            self._up_conv_blocks.append(level_net)
+        print(level_out_shape)
+        self._up_conv_blocks = nn.ModuleList(self._up_conv_blocks)
+        self._transpose_conv_layers = nn.ModuleList(self._transpose_conv_layers)
+
+        # output layer
+        self._output_conv = nn.Conv2d(level_out_shape[0], out_channels, kernel_size=1, stride=1, padding="same")
+
+    def __call__(self, x, t):
+        # x is (B, C, H, W)
+        B, _, _, _ = x.shape
+        assert t.shape[0] == B and len(t.shape) == 1, "t has to have shape (B)"
+
+        # downward branch
+        skip_images = []
+        for down_block in self._down_conv_blocks[:-1]:
+            x = down_block(x)
+            skip_images.append(x)
+            x = F.max_pool2d(x, self.pooling_factor)
+        
+        # embed t
+        _, _, latent_h, latent_w = x.shape
+        pos_embed = self.compute_pos_encodings((latent_h, latent_w), t)
+        x = torch.cat((x, pos_embed), dim = 1)
+        x = self._down_conv_blocks[-1](x)
+
+        # upward branch
+        for i, (transpose_layer, up_block) in enumerate(zip(self._transpose_conv_layers, self._up_conv_blocks)):
+            x = transpose_layer(x)
+            x = torch.cat((x, skip_images[-(i+1)]), dim = 1)
+            x = up_block(x)
+
+        # output layer
+        x = self._output_conv(x)
+        return x
+
+    def compute_pos_encodings(self, latent_shape, t):
+        # t has shape (B,)
+        B = t.shape[0]
+        encoding_flat = self.encoding[t-1, :].view(B, self.encoding_dim, 1, 1)
+        encoding = encoding_flat.expand(-1, -1, *latent_shape)
+        return encoding
 
 def get_feature_size(input_shape, conv_layers):
     # returns flattened size
@@ -34,6 +129,13 @@ def get_feature_size(input_shape, conv_layers):
     for conv_layer in conv_layers:
         x = conv_layer(x)
     return torch.numel(x)
+
+def get_feature_shape(input_shape, conv_layers):
+    # returns flattened size
+    x = torch.zeros(input_shape)
+    for conv_layer in conv_layers:
+        x = conv_layer(x)
+    return x.shape
 
 class MLP(nn.Module):
     def __init__(self, num_layers, model_width, in_size, out_size, skip = False, layernorm = False, **kwargs):
@@ -110,7 +212,7 @@ class ResidualMLP(nn.Module):
         return x
 
 class DiffusionModel(nn.Module):
-    backbones = {"mlp": ConditionalMLP, "res_mlp": ResidualMLP}
+    backbones = {"mlp": ConditionalMLP, "res_mlp": ResidualMLP, "unet": UNet}
     
     def __init__(self, backbone, backbone_params, in_channels, image_size, max_diffusion_steps = 100, noise_schedule = "linear", device = "cpu", **kwargs):
         super().__init__()
@@ -119,6 +221,15 @@ class DiffusionModel(nn.Module):
                 backbone_params.update({
                     "in_size": in_channels * image_size[0] * image_size[1],
                     "out_size": in_channels * image_size[0] * image_size[1],
+                    "max_diffusion_steps": max_diffusion_steps,
+                    "device": device,
+                })
+        elif backbone == "unet":
+            with open_dict(backbone_params):
+                backbone_params.update({
+                    "in_channels": in_channels,
+                    "out_channels": in_channels,
+                    "image_shape": (image_size[0], image_size[1]),
                     "max_diffusion_steps": max_diffusion_steps,
                     "device": device,
                 })

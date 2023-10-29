@@ -1,7 +1,7 @@
 defaults:
   - _self_
   - cifar10
-  - model: res_mlp
+  - model: unet
   - override hydra/hydra_logging: none
   - override hydra/job_logging: stdout
 

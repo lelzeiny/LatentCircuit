@@ -1,0 +1,10 @@
+backbone: unet
+backbone_params:
+  in_channels: 3
+  out_channels: 3
+  cnn_depths: [64, 128, 256, 512]
+  layers_per_block: 2
+  filter_size: 3
+  pooling_factor: 2
+  encoding_type: sinusoid
+  encoding_dim: 16
