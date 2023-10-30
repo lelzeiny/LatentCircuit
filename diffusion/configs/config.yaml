@@ -1,7 +1,7 @@
 defaults:
   - _self_
   - cifar10
-  - model: unet
+  - model: unet-wide
   - override hydra/hydra_logging: none
   - override hydra/job_logging: stdout
 
@@ -27,10 +27,10 @@ model:
   beta_T: 0.02
 
 # training params
-batch_size: 256
-val_batch_size: 1024
-train_steps: 10000
-print_every: 500
+batch_size: 128
+val_batch_size: 256
+train_steps: 300000
+print_every: 1000
 display_images: 16
 lr: 3e-4
 augment: False

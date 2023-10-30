@@ -7,21 +7,38 @@ import numpy as np
 from omegaconf import open_dict
 
 class ConvNet(nn.Module):
-    def __init__(self, in_channels, image_shape, filter_sizes, cnn_strides, cnn_depths, padding="valid", **kwargs):
+    def __init__(self, in_channels, image_shape, filter_sizes, cnn_strides, cnn_depths, padding="valid", residual=True, dropout=0.0, norm=True, **kwargs):
         super().__init__()
         cnn_depths = [in_channels] + cnn_depths
+        self.residual = residual
+        self.norm = norm
         self._conv_layers = []
-        for size, stride, in_depth, out_depth in zip(filter_sizes, cnn_strides, cnn_depths[:-1], cnn_depths[1:]):
+        self._nonlinear_layers = []
+        self._norm_layers = []
+        self.in_depths = cnn_depths[:-1]
+        self.out_depths = cnn_depths[1:]
+        for size, stride, in_depth, out_depth in zip(filter_sizes, cnn_strides, self.in_depths, self.out_depths):
+            self._norm_layers.append(nn.GroupNorm(num_groups=1, num_channels=in_depth))
             self._conv_layers.append(nn.Conv2d(in_depth, out_depth, size, stride=stride, padding=padding))
-            self._conv_layers.append(nn.ReLU())
+            self._nonlinear_layers.append(nn.ReLU())
         self.out_shape = get_feature_shape((in_channels, *image_shape), self._conv_layers)
-        self._conv = nn.Sequential(*self._conv_layers)
+        self._norm_layers = nn.ModuleList(self._norm_layers)
+        self._conv_layers = nn.ModuleList(self._conv_layers)
+        self._nonlinear_layers = nn.ModuleList(self._nonlinear_layers)
+        self._dropout = nn.Dropout(p = dropout)
 
     def __call__(self, x):
         # x is (B, C, H, W)
         B, C, H, W = x.shape
-        x = self._conv(x)
-        return x
+        for conv_layer, nonlinear, norm, in_depth, out_depth in zip(self._conv_layers, self._nonlinear_layers, self._norm_layers, self.in_depths, self.out_depths):
+            x_original = x
+            if self.norm:
+                x = norm(x)
+            x = conv_layer(x)
+            x = nonlinear(x)
+            if self.residual and in_depth == out_depth:
+                x = x_original + x
+        return self._dropout(x)
 
 class UNet(nn.Module): # conditional UNet class used for diffusion models
     encodings = {"sinusoid": pos_encoding.get_positional_encodings, "none": pos_encoding.get_none_encodings}
@@ -54,6 +71,7 @@ class UNet(nn.Module): # conditional UNet class used for diffusion models
                 [1] * layers_per_block,
                 [cnn_depth] * layers_per_block,
                 padding = "same",
+                **kwargs
                 )
             level_out_shape = level_net.out_shape
             level_in_shape = (level_out_shape[0], level_out_shape[1]//pooling_factor, level_out_shape[2]//pooling_factor)
@@ -66,10 +84,6 @@ class UNet(nn.Module): # conditional UNet class used for diffusion models
             level_in_shape = (2 * cnn_depths[i], level_out_shape[1] * pooling_factor, level_out_shape[2] * pooling_factor)
             print(cnn_depths[i], level_in_shape)
             transpose_layer = nn.ConvTranspose2d(level_out_shape[0], cnn_depths[i], kernel_size=1, stride=pooling_factor, padding=0, output_padding=pooling_factor-1)
-            # transpose_layer = nn.Sequential(
-            #     nn.Upsample(scale_factor=pooling_factor, mode="nearest"),
-            #     nn.Conv2d(level_out_shape[0], cnn_depths[i], kernel_size=pooling_factor, stride=1, padding="same"),
-            # )
             level_net = ConvNet(
                 level_in_shape[0], 
                 level_in_shape[1:], 
@@ -77,6 +91,7 @@ class UNet(nn.Module): # conditional UNet class used for diffusion models
                 [1] * layers_per_block,
                 [cnn_depths[i]] * layers_per_block,
                 padding = "same",
+                **kwargs,
                 )
             level_out_shape = level_net.out_shape
             self._transpose_conv_layers.append(transpose_layer)
@@ -286,11 +301,16 @@ class DiffusionModel(nn.Module):
         for t in range(self.max_diffusion_steps, 0 , -1):
             t_vec = torch.tensor(t, device=x.device).expand(B)
             z = self._epsilon_dist.sample(batch_shape).squeeze(dim = -1) if t>1 else torch.zeros_like(x)
-            x = (1.0/torch.sqrt(1 - self._beta[t-1])) * (x - (self._beta[t-1]/self._sqrt_alpha_bar_complement[t-1]) * self(x, t_vec)) + self._sigma[t-1] * z
+            x = (1.0/torch.sqrt(1 - self._beta[t-1])) * (x - (self._beta[t-1]/self._sqrt_alpha_bar_complement[t-1]) * self(x, t_vec))
             if intermediate_every and t>1 and t % intermediate_every == 0:
                 intermediates.append(x)
+            x = x + self._sigma[t-1] * z
         intermediates.append(x) # append final image
-        return x, intermediates
+        # normalize x
+        x_max = torch.amax(x, dim=(1,2,3), keepdim=True)
+        x_min = torch.amin(x, dim=(1,2,3), keepdim=True)
+        x_normalized = (x - x_min)/(x_max - x_min)
+        return x_normalized, intermediates
 
 def get_linear_sched(T, beta_1, beta_T):
     # returns noise schedule beta as numpy array with shape (T)
