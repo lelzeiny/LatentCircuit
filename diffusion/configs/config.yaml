@@ -30,7 +30,7 @@ model:
 batch_size: 128
 val_batch_size: 256
 train_steps: 300000
-print_every: 1000
+print_every: 1000 #1000
 display_images: 16
 lr: 3e-4
 augment: False
