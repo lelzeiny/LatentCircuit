@@ -1,0 +1,2 @@
+task: celeba
+num_classes: 1

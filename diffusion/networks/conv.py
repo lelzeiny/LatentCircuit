@@ -35,6 +35,45 @@ class ConvNet(nn.Module):
                 x = x_original + x
         return self._dropout(x)
 
+class ResBlock(nn.Module):
+    def __init__(self, in_channels, image_shape, cnn_depth, filter_size=3, cnn_stride=1, num_layers=2, padding="valid", dropout=0.0, norm=True, **kwargs):
+        super().__init__()
+        self.norm = norm
+        self.num_layers = num_layers
+        self._conv_layers = []
+        self._nonlinear_layers = []
+        self._norm_layers = []
+
+        # input layer
+        if in_channels != cnn_depth:
+            self._input_layer = nn.Conv2d(in_channels, cnn_depth, 1, stride=1, padding="valid")
+        else:
+            self._input_layer = None
+
+        for _ in range(num_layers):
+            self._norm_layers.append(nn.GroupNorm(num_groups=1, num_channels=cnn_depth))
+            self._conv_layers.append(nn.Conv2d(cnn_depth, cnn_depth, filter_size, stride=cnn_stride, padding=padding))
+            self._nonlinear_layers.append(nn.ReLU())
+        
+        self.out_shape = get_feature_shape((in_channels, *image_shape), self._conv_layers)
+        self._norm_layers = nn.ModuleList(self._norm_layers)
+        self._conv_layers = nn.ModuleList(self._conv_layers)
+        self._nonlinear_layers = nn.ModuleList(self._nonlinear_layers)
+        self._dropout = nn.Dropout(p = dropout)
+
+    def __call__(self, x):
+        # x is (B, C, H, W)
+        if not self._input_layer is None:
+            x = self._input_layer(x)
+        x_skip = x
+        for _, (conv_layer, nonlinear, norm) in enumerate(zip(self._conv_layers, self._nonlinear_layers, self._norm_layers)):
+            if self.norm:
+                x = norm(x)
+            x = conv_layer(x)
+            x = nonlinear(x)
+        self._dropout(x)
+        return x + x_skip
+
 def get_feature_size(input_shape, conv_layers):
     # returns flattened size
     x = torch.zeros(input_shape)

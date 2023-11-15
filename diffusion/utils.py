@@ -164,6 +164,20 @@ def load_data(dataset_name, augment = False, train_data_limit = None):
             download = False,
             transform = transform_val)
         classes = None
+    elif dataset_name == "celeba":
+        transform_augment_list = [
+            transforms.RandomHorizontalFlip(),
+            ]
+        transform_list = [
+            transforms.Resize((128, 128)),
+            transforms.ToTensor(), 
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+            ]
+        transform_train = transforms.Compose((transform_augment_list + transform_list) if augment else transform_list)
+        transform_val = transforms.Compose(transform_list)
+        train_set = torchvision.datasets.CelebA(root = dataset_path, target_type="identity", split="train", download=True, transform=transform_train)
+        val_set = torchvision.datasets.CelebA(root = dataset_path, target_type="identity", split="valid", download=True, transform=transform_val)
+        classes = None
     else:
         raise NotImplementedError
     if train_data_limit is not None and train_data_limit != "none":

@@ -1,6 +1,6 @@
 defaults:
   - _self_
-  - cifar10
+  - celeba
   - model: unet-wide
   - override hydra/hydra_logging: none
   - override hydra/job_logging: stdout
@@ -27,9 +27,9 @@ model:
   beta_T: 0.02
 
 # training params
-batch_size: 128
+batch_size: 8
 val_batch_size: 256
-train_steps: 300000
+train_steps: 1200000
 print_every: 1000 #1000
 display_images: 16
 lr: 3e-4
