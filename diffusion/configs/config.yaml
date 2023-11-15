@@ -1,7 +1,7 @@
 defaults:
   - _self_
-  - celeba
-  - model: unet-wide
+  - cifar10
+  - model: unet
   - override hydra/hydra_logging: none
   - override hydra/job_logging: stdout
 
@@ -23,13 +23,15 @@ implementation: custom
 model:
   max_diffusion_steps: 1000
   noise_schedule: linear
+  encoding_type: sinusoid
+  encoding_dim: 32
   beta_1: 1e-4
   beta_T: 0.02
 
 # training params
-batch_size: 8
+batch_size: 128
 val_batch_size: 256
-train_steps: 1200000
+train_steps: 300000
 print_every: 1000 #1000
 display_images: 16
 lr: 3e-4

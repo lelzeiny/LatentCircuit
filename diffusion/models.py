@@ -7,26 +7,29 @@ import numpy as np
 import networks
 from omegaconf import open_dict
 
+# TODO apply pos-encoding refactor for Res-MLP and ViT
+# TODO create class/vector-conditional variant of diffusion model
 class DiffusionModel(nn.Module):
-    backbones = {"mlp": networks.ConditionalMLP, "res_mlp": networks.ResidualMLP, "unet": networks.UNet, "vit": networks.ViT}
-    
-    def __init__(self, backbone, backbone_params, in_channels, image_size, max_diffusion_steps = 100, noise_schedule = "linear", device = "cpu", **kwargs):
+    backbones = {"mlp": networks.ConditionalMLP, "res_mlp": networks.ResidualMLP, "unet": networks.UNet, "cond_unet": networks.CondUNet, "vit": networks.ViT}
+    time_encodings = {"sinusoid": pos_encoding.get_positional_encodings, "none": pos_encoding.get_none_encodings}
+
+    def __init__(self, backbone, backbone_params, in_channels, image_size, encoding_type, encoding_dim, max_diffusion_steps = 100, noise_schedule = "linear", device = "cpu", **kwargs):
         super().__init__()
         if backbone == "mlp" or backbone == "res_mlp":
             with open_dict(backbone_params):
                 backbone_params.update({
                     "in_size": in_channels * image_size[0] * image_size[1],
                     "out_size": in_channels * image_size[0] * image_size[1],
-                    "max_diffusion_steps": max_diffusion_steps,
+                    "encoding_dim": encoding_dim,
                     "device": device,
                 })
-        elif backbone == "unet":
+        elif backbone == "unet" or backbone == "cond_unet":
             with open_dict(backbone_params):
                 backbone_params.update({
                     "in_channels": in_channels,
                     "out_channels": in_channels,
                     "image_shape": (image_size[0], image_size[1]),
-                    "max_diffusion_steps": max_diffusion_steps,
+                    "cond_dim": encoding_dim,
                     "device": device,
                 })
         elif backbone == "vit":
@@ -35,9 +38,12 @@ class DiffusionModel(nn.Module):
                     "in_channels": in_channels,
                     "out_channels": in_channels,
                     "image_size": image_size[0],
-                    "max_diffusion_steps": max_diffusion_steps,
+                    "encoding_dim": encoding_dim,
                     "device": device,
                 })
+        if encoding_dim > 0:
+            self.encoding = DiffusionModel.time_encodings[encoding_type](max_diffusion_steps, encoding_dim).to(device)
+        self.encoding_dim = encoding_dim
         self._reverse_model = DiffusionModel.backbones[backbone](**backbone_params)
         self.in_channels = in_channels
         self.max_diffusion_steps = max_diffusion_steps
@@ -60,7 +66,8 @@ class DiffusionModel(nn.Module):
     def __call__(self, x, t):
         # input: x is (B, C, H, W), t is (B)
         # output: epsilon predictions of model
-        return self._reverse_model(x, t).view(*x.shape)
+        t_embed = self.compute_pos_encodings(t)
+        return self._reverse_model(x, t_embed).view(*x.shape)
     
     def loss(self, x, t):
         B, C, H, W  = x.shape
@@ -101,6 +108,14 @@ class DiffusionModel(nn.Module):
         x_min = torch.amin(x, dim=(1,2,3), keepdim=True)
         x_normalized = (x - x_min)/(x_max - x_min)
         return x_normalized, intermediates
+    
+    def compute_pos_encodings(self, t):
+        # t has shape (B,)
+        if self.encoding_dim == 0:
+            return None
+        B = t.shape[0]
+        encoding = self.encoding[t-1, :].view(B, self.encoding_dim)
+        return encoding
 
 def get_linear_sched(T, beta_1, beta_T):
     # returns noise schedule beta as numpy array with shape (T)
