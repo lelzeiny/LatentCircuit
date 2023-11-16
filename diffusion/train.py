@@ -1,14 +1,17 @@
 import utils
 import torch
 import hydra
-import models
+# import models
 from omegaconf import OmegaConf, open_dict
-import common
+# import common
 import os
 import time
 
 @hydra.main(version_base=None, config_path="configs", config_name="config")
 def main(cfg):
+    data = utils.load_and_parse_graph("./tests/graph0.pickle")
+    import pdb; pdb.set_trace()
+    exit()
     # Preliminaries
     OmegaConf.set_struct(cfg, True)
     device = 'cuda' if torch.cuda.is_available() else 'cpu'

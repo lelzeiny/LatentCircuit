@@ -5,6 +5,10 @@ import numpy as np
 import wandb
 import os
 from torch.utils.data import Subset
+import pickle
+import networkx as nx
+from torch_geometric.data import Data
+from torch_geometric.utils import from_networkx
 
 @torch.no_grad()
 def validate(x_val, model):
@@ -235,3 +239,14 @@ class DataLoader:
 
     def get_val_size(self):
         return len(self.val_set)
+    
+
+def open_pickle(path):
+    with open(path, "rb") as f:
+        return pickle.load(f)
+
+def load_and_parse_graph(path):
+    """loads networkx graph from pickle, get """
+    graph = open_pickle(path) #networkx graph
+    return from_networkx(graph)
+
