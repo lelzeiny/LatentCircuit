@@ -9,6 +9,7 @@ import pickle
 import networkx as nx
 from torch_geometric.data import Data
 from torch_geometric.utils import from_networkx
+from PIL import Image, ImageDraw
 
 @torch.no_grad()
 def validate(x_val, model):
@@ -248,5 +249,100 @@ def open_pickle(path):
 def load_and_parse_graph(path):
     """loads networkx graph from pickle, get """
     graph = open_pickle(path) #networkx graph
-    return from_networkx(graph)
+    attr_replace = {node[0]: {k:float(v) for k, v in node[1].items()} for node in graph.nodes(data=True)}
+    nx.set_node_attributes(graph, attr_replace)
+    
+
+    digraph = nx.DiGraph()
+
+    for node in graph.nodes(data=True):
+        digraph.add_node(node[0], **node[1])
+
+    for edge in graph.edges(data=True):
+        attr = edge[2]
+        attr.pop('u_id')
+        attr.pop('v_id')
+        digraph.add_edge(edge[0], edge[1], **attr) # create the original edge
+        
+
+
+        temp = attr['u_pinx']
+        attr['u_pinx'] = attr['v_pinx']
+        attr['v_pinx'] = temp
+        temp = attr['u_piny']
+        attr['u_piny'] = attr['v_piny']
+        attr['v_piny'] = temp
+        digraph.add_edge(edge[1], edge[0], **attr) #create the flipped, duplicate edge
+
+    
+
+
+    # edge_u = []
+    # edge_v = []
+    # edge_keys = []
+    # for e in graph.edges:
+    #     edge_data = []
+    #     if not len(edge_keys):
+    #         edge_keys = list(graph.get_edge_data(*e).keys())
+    #     for k in edge_keys:
+    #         edge_data.append(graph.get_edge_data(*e)[k])
+    #     edge_feat = np.array(edge_data, dtype=float)
+    #     graph.update(edges=[(*e, edge_feat)])
+    return from_networkx(digraph, group_edge_attrs=all, group_node_attrs=all)
+
+def hsv_to_rgb(h, s, v):
+    """
+    Converts HSV (Hue, Saturation, Value) color space to RGB (Red, Green, Blue).
+    h: float [0, 1] - Hue
+    s: float [0, 1] - Saturation
+    v: float [0, 1] - Value
+    Returns: tuple (r, g, b) representing RGB values in the range [0, 255]
+    """
+    h_i = int(h * 6)
+    f = h * 6 - h_i
+    p = v * (1 - s)
+    q = v * (1 - f * s)
+    t = v * (1 - (1 - f) * s)
+
+    if h_i == 0:
+        r, g, b = v, t, p
+    elif h_i == 1:
+        r, g, b = q, v, p
+    elif h_i == 2:
+        r, g, b = p, v, t
+    elif h_i == 3:
+        r, g, b = p, q, v
+    elif h_i == 4:
+        r, g, b = t, p, v
+    else:
+        r, g, b = v, p, q
+
+    return int(r * 255), int(g * 255), int(b * 255)
+
+
+def visualize(X, attr):
+    """ Visualizes the X with node attributes, returning an numpy image"""
+
+    width, height = 128
+    background_color = "white"
+
+    image = Image.new("RGB", (width, height), background_color)
+
+    draw = ImageDraw.Draw(image)
+
+    h_step = 1 / len(X)
+    
+
+    #pos[0] = x
+    #pos[1] = y
+    #shape[0] = width
+    #shape[1] = height
+    for i, (pos, shape) in enumerate(zip(X, attr)):
+        topLeft = (pos[0] - width / 2, pos[1] + height / 2)
+        bottomRight = (pose[0] + width / 2, pose[1] - height / 2)
+        color = hsv_to_rgb(i * h_step, 1, 1)
+        draw.rectangle([topLeft, bottomRight], fill=color)
+
+    return np.array(image)
+
 
