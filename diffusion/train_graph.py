@@ -26,22 +26,17 @@ def main(cfg):
     sample_shape = train_set[0][0].shape
     dataloader = utils.DataLoader(train_set, val_set, cfg.batch_size, cfg.val_batch_size, device)
     with open_dict(cfg):
-        if cfg.family == "diffusion":
-            cfg.model.update({
-                "num_classes": cfg.num_classes,
-                "in_channels": sample_shape[0],
-                "image_size": (sample_shape[1], sample_shape[2]),
-                "device": device,
-            })
-        elif cfg.family == "cond_diffusion":
+        if cfg.family == "cond_diffusion":
             cfg.model.update({
                 "num_classes": cfg.num_classes,
                 "input_shape": sample_shape,
                 "device": device,
             })
+        else:
+            raise NotImplementedError
     
     # Preparing model
-    model_types = {"diffusion": models.DiffusionModel, "cond_diffusion": models.CondDiffusionModel}
+    model_types = {"cond_diffusion": models.CondDiffusionModel}
     if cfg.implementation == "custom":
         model = model_types[cfg.family](**cfg.model).to(device)
     else:
@@ -84,10 +79,11 @@ def main(cfg):
     t_1 = time.time()
     best_loss = 1e12
     while step < cfg.train_steps:
-        x, y = dataloader.get_batch("train")
+        x, netlist_data = dataloader.get_batch("train")
+        # x has (B, N, 2); netlist_data is a single graph in tg.Data format
         t = torch.randint(1, cfg.model.max_diffusion_steps + 1, [x.shape[0]], device = device)
         optim.zero_grad()
-        loss, model_metrics = model.loss(x, t)
+        loss, model_metrics = model.loss(x, netlist_data, t)
         loss.backward()
         optim.step()
         train_metrics.add({"loss": loss.cpu().item()})
@@ -95,33 +91,32 @@ def main(cfg):
         step.increment()
 
         if (int(step)) % cfg.print_every == 0:
+            # TODO fix up validation and display for graph problems
             t_2 = time.time()
-            x_val, y_val = dataloader.get_batch("val")
-            train_logs = utils.validate(x, model)
-            val_logs = utils.validate(x_val, model)
+            # x_val, netlist_data_val = dataloader.get_batch("val")
+            # train_logs = utils.validate(x, model)
+            # val_logs = utils.validate(x_val, model)
 
             logger.add({
                 "time_elapsed": t_2-t_0, 
                 "ms_per_step": 1000*(t_2-t_1)/cfg.print_every
                 })
             logger.add(train_metrics.result())
-            logger.add(val_logs, prefix="val")
-            logger.add(train_logs, prefix="train")
+            # logger.add(val_logs, prefix="val")
+            # logger.add(train_logs, prefix="train")
 
             # display example images
-            x_disp, y_disp = dataloader.get_display_batch(cfg.display_images)
-            # utils.display_predictions(x_disp, y_disp, model, logger, prefix = "val", text_labels = text_labels)
-            # utils.display_predictions(x[:cfg.display_images], y[:cfg.display_images], model, logger, prefix = "train", text_labels = text_labels)
-            utils.display_samples(cfg.display_images, model, logger, prefix = "val")
-            utils.display_forward_samples(x_disp, model, logger, prefix = "val")
+            # x_disp, y_disp = dataloader.get_display_batch(cfg.display_images)
+            # utils.display_samples(cfg.display_images, model, logger, prefix = "val")
+            # utils.display_forward_samples(x_disp, model, logger, prefix = "val")
             logger.write()
             t_1 = t_2
 
             checkpointer.save() # save latest checkpoint
-            if val_logs["loss"] < best_loss:
-                best_loss = val_logs["loss"]
-                checkpointer.save(os.path.join(log_dir, "best.ckpt"))
-                print("saving best model")
+            # if val_logs["loss"] < best_loss:
+            #     best_loss = val_logs["loss"]
+            #     checkpointer.save(os.path.join(log_dir, "best.ckpt"))
+            #     print("saving best model")
 
 if __name__=="__main__":
     main()

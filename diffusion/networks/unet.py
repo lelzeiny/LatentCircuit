@@ -5,7 +5,6 @@ import torch.nn.functional as F
 import networks
 
 class UNet(nn.Module): # UNet class used for diffusion models
-    encodings = {"sinusoid": pos_encoding.get_positional_encodings, "none": pos_encoding.get_none_encodings}
 
     def __init__(self, in_channels, out_channels, image_shape, cnn_depths, layers_per_block, filter_size, pooling_factor, cond_dim, level_block="conv", device="cpu", **kwargs):
         # length of CNN_depths determines how many levels u-net has
@@ -133,7 +132,6 @@ class UNet(nn.Module): # UNet class used for diffusion models
         return encoding
     
 class CondUNet(nn.Module): # Conditional UNet class used for diffusion models
-    encodings = {"sinusoid": pos_encoding.get_positional_encodings, "none": pos_encoding.get_none_encodings}
 
     def __init__(self, in_channels, out_channels, image_shape, cnn_depths, layers_per_block, filter_size, pooling_factor, cond_dim, level_block="conv", device="cpu", **kwargs):
         # length of CNN_depths determines how many levels u-net has
