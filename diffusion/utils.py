@@ -4,6 +4,7 @@ import torchvision.transforms as transforms
 import numpy as np
 import wandb
 import os
+import pathlib
 from torch.utils.data import Subset
 import pickle
 import networkx as nx
@@ -182,12 +183,30 @@ def load_data(dataset_name, augment = False, train_data_limit = None):
         transform_val = transforms.Compose(transform_list)
         train_set = torchvision.datasets.CelebA(root = dataset_path, target_type="identity", split="train", download=True, transform=transform_train)
         val_set = torchvision.datasets.CelebA(root = dataset_path, target_type="identity", split="valid", download=True, transform=transform_val)
-        classes = None
+        classes = None    
     else:
         raise NotImplementedError
     if train_data_limit is not None and train_data_limit != "none":
         train_set = Subset(train_set, torch.arange(train_data_limit))
     return train_set, val_set, classes
+
+def load_graph_data(dataset_name, augment = False, train_data_limit = None):
+    dataset_path = os.path.join(os.path.dirname(__file__), f'../datasets/graph/{dataset_name}')
+    if dataset_name == "placement-v0":
+        chip_size = 250
+        val_set = [] #TODO fix this
+        train_cond_path = os.path.join(dataset_path, "graph0.pickle")
+        train_x_path = os.path.join(dataset_path, "output0.pickle")
+        train_cond = load_and_parse_graph(train_cond_path)
+        train_x = torch.tensor(open_pickle(train_x_path) / 1000, dtype=torch.float32) # TODO fix this
+        train_cond.x = (train_cond.x / (chip_size))
+        train_x = 2 * (train_x / chip_size) - 1
+        train_set = [(train_x, train_cond)] 
+    else:
+        raise NotImplementedError
+    if train_data_limit is not None and train_data_limit != "none":
+        train_set = Subset(train_set, torch.arange(train_data_limit))
+    return train_set, val_set
 
 class DataLoader:
     def __init__(
@@ -241,17 +260,46 @@ class DataLoader:
     def get_val_size(self):
         return len(self.val_set)
     
+class GraphDataLoader:
+    def __init__(
+            self, 
+            train_dataset, 
+            val_dataset, 
+            train_batch_size,
+            val_batch_size,
+            train_device = "cuda",
+            num_workers = 8,
+            pin_memory = False,
+        ):
+        self.device = train_device
+        self.train_batch_size = train_batch_size
+        self.val_batch_size = val_batch_size
+        self.train_set = train_dataset
+        self.val_set = val_dataset
+    
+    def get_batch(self, split):
+        assert split in ("train", "val"), "split argument has to be one of 'train' or 'val'"
+        dataset = self.train_set if split=="train" else self.val_set
+        batch_size = self.train_batch_size if split=="train" else self.val_batch_size
+        idx = torch.randint(0, len(dataset), [1], device = self.device) # TODO support larger batch sizes
+        x, y = dataset[idx]
+        return x.to(self.device).view(1, *x.shape).expand(batch_size, *x.shape), y.to(self.device)
+
+    def get_train_size(self):
+        return len(self.train_set)
+
+    def get_val_size(self):
+        return len(self.val_set)
 
 def open_pickle(path):
     with open(path, "rb") as f:
         return pickle.load(f)
 
 def load_and_parse_graph(path):
-    """loads networkx graph from pickle, get """
+    """loads networkx graph from pickle, gets Data object"""
     graph = open_pickle(path) #networkx graph
     attr_replace = {node[0]: {k:float(v) for k, v in node[1].items()} for node in graph.nodes(data=True)}
-    nx.set_node_attributes(graph, attr_replace)
-    
+    nx.set_node_attributes(graph, attr_replace)    
 
     digraph = nx.DiGraph()
 
@@ -263,9 +311,6 @@ def load_and_parse_graph(path):
         attr.pop('u_id')
         attr.pop('v_id')
         digraph.add_edge(edge[0], edge[1], **attr) # create the original edge
-        
-
-
         temp = attr['u_pinx']
         attr['u_pinx'] = attr['v_pinx']
         attr['v_pinx'] = temp
@@ -273,21 +318,6 @@ def load_and_parse_graph(path):
         attr['u_piny'] = attr['v_piny']
         attr['v_piny'] = temp
         digraph.add_edge(edge[1], edge[0], **attr) #create the flipped, duplicate edge
-
-    
-
-
-    # edge_u = []
-    # edge_v = []
-    # edge_keys = []
-    # for e in graph.edges:
-    #     edge_data = []
-    #     if not len(edge_keys):
-    #         edge_keys = list(graph.get_edge_data(*e).keys())
-    #     for k in edge_keys:
-    #         edge_data.append(graph.get_edge_data(*e)[k])
-    #     edge_feat = np.array(edge_data, dtype=float)
-    #     graph.update(edges=[(*e, edge_feat)])
     return from_networkx(digraph, group_edge_attrs=all, group_node_attrs=all)
 
 def hsv_to_rgb(h, s, v):
@@ -318,7 +348,6 @@ def hsv_to_rgb(h, s, v):
         r, g, b = v, p, q
 
     return int(r * 255), int(g * 255), int(b * 255)
-
 
 def visualize(X, attr):
     """ Visualizes the X with node attributes, returning an numpy image"""

@@ -8,7 +8,6 @@ import networks
 from omegaconf import open_dict
 
 # TODO apply pos-encoding refactor for Res-MLP and ViT
-# TODO create class/vector-conditional variant of diffusion model
 class DiffusionModel(nn.Module):
     backbones = {"mlp": networks.ConditionalMLP, "res_mlp": networks.ResidualMLP, "unet": networks.UNet, "cond_unet": networks.CondUNet, "vit": networks.ViT}
     time_encodings = {"sinusoid": pos_encoding.get_positional_encodings, "none": pos_encoding.get_none_encodings}
@@ -118,7 +117,7 @@ class DiffusionModel(nn.Module):
         return encoding
 
 class CondDiffusionModel(nn.Module):
-    backbones = {"mlp": networks.ConditionalMLP, "res_mlp": networks.ResidualMLP, "unet": networks.UNet, "cond_unet": networks.CondUNet, "vit": networks.ViT, "attention_gnn": networks.AttentionGNN}
+    backbones = {"mlp": networks.ConditionalMLP, "res_mlp": networks.ResidualMLP, "unet": networks.UNet, "cond_unet": networks.CondUNet, "vit": networks.ViT, "res_gnn": networks.ResGNN, "res_gnn_block": networks.ResGNNBlock, "graph_unet": networks.GraphUNet}
     time_encodings = {"sinusoid": pos_encoding.get_positional_encodings, "none": pos_encoding.get_none_encodings}
     # conditioning vec can be arbitrary
     # here we use a torch_geometry object
@@ -150,18 +149,18 @@ class CondDiffusionModel(nn.Module):
                     "encoding_dim": encoding_dim,
                     "device": device,
                 })
-        elif backbone == "attention_gnn":
+        elif backbone == "res_gnn_block" or backbone == "res_gnn" or backbone == "graph_unet":
             with open_dict(backbone_params):
                 backbone_params.update({
-                    "in_node_channels": input_shape[0],
-                    "out_node_channels": input_shape[0],
+                    "in_node_features": input_shape[1],
+                    "out_node_features": input_shape[1],
                     "encoding_dim": encoding_dim,
                     "device": device,
                 })
         if encoding_dim > 0:
-            self.encoding = DiffusionModel.time_encodings[encoding_type](max_diffusion_steps, encoding_dim).to(device)
+            self.encoding = CondDiffusionModel.time_encodings[encoding_type](max_diffusion_steps, encoding_dim).to(device)
         self.encoding_dim = encoding_dim
-        self._reverse_model = DiffusionModel.backbones[backbone](**backbone_params)
+        self._reverse_model = CondDiffusionModel.backbones[backbone](**backbone_params)
         self.input_shape = input_shape
         self.max_diffusion_steps = max_diffusion_steps
         if noise_schedule == "linear":

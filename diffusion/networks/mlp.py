@@ -77,20 +77,22 @@ class ResidualMLP(nn.Module):
         return x
     
 class FiLM(nn.Module):
-    def __init__(self, cond_dim, input_dim):
+    def __init__(self, cond_dim, input_dim, channel_axis=1):
         super().__init__()
         self._mult_proj = nn.Linear(cond_dim, input_dim) 
         self._add_proj = nn.Linear(cond_dim, input_dim)
+        self.channel_axis = channel_axis
     
     def __call__(self, x, cond):
-        # x has (B, input_dim, ...)
+        # x has (B, input_dim, ...) or (B, ..., input_dim)
         # cond has (B, cond_dim)
         mult = self._mult_proj(cond)
         add = self._add_proj(cond)
         # sort out the shapes
         if len(x.shape) > 2:
             B, cond_dim = mult.shape
-            expand_dims = len(x.shape)-2
-            mult = mult.view(B, cond_dim, *([1]*expand_dims))
-            add = add.view(B, cond_dim, *([1]*expand_dims))
+            expand_dims = [1]*(len(x.shape)-1)
+            expand_dims[self.channel_axis] = cond_dim
+            mult = mult.view(B, *expand_dims)
+            add = add.view(B, *expand_dims)
         return mult * x + add

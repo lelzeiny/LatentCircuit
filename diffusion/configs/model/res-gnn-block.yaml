@@ -1,7 +1,7 @@
-backbone: attention_gnn
+backbone: res_gnn_block
 backbone_params:
   edge_features: 4
   cond_node_features: 2
-  hidden_node_features: 16
+  hidden_node_features: 128
   num_layers: 16
   dropout: 0.0

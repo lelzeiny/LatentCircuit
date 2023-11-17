@@ -7,7 +7,7 @@ import common
 import os
 import time
 
-@hydra.main(version_base=None, config_path="configs", config_name="config")
+@hydra.main(version_base=None, config_path="configs", config_name="config_graph")
 def main(cfg):
     # Preliminaries
     OmegaConf.set_struct(cfg, True)
@@ -22,14 +22,14 @@ def main(cfg):
     torch.manual_seed(cfg.seed)
 
     # Preparing dataset
-    train_set, val_set, text_labels = utils.load_data(cfg.task, augment = cfg.augment, train_data_limit = cfg.data_limit)
+    train_set, val_set = utils.load_graph_data(cfg.task, augment = cfg.augment, train_data_limit = cfg.data_limit)
     sample_shape = train_set[0][0].shape
-    dataloader = utils.DataLoader(train_set, val_set, cfg.batch_size, cfg.val_batch_size, device)
+    dataloader = utils.GraphDataLoader(train_set, val_set, cfg.batch_size, cfg.val_batch_size, device)
     with open_dict(cfg):
         if cfg.family == "cond_diffusion":
             cfg.model.update({
                 "num_classes": cfg.num_classes,
-                "input_shape": sample_shape,
+                "input_shape": tuple(sample_shape),
                 "device": device,
             })
         else:
