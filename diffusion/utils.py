@@ -5,9 +5,12 @@ import numpy as np
 import wandb
 import os
 import pathlib
+import os.path as osp
 from torch.utils.data import Subset
 import pickle
 import networkx as nx
+from torch_geometric.loader import DataLoader
+from torch_geometric.data import Dataset, download_url
 from torch_geometric.data import Data
 from torch_geometric.utils import from_networkx
 from PIL import Image, ImageDraw
@@ -291,6 +294,81 @@ def generate_batch_visualizations(x, cond):
         img = torch.tensor(visualize(x[i], attr)).movedim(-1, -3) # images should be C, H, W
         image_list.append(img)
     return torch.stack(image_list, dim=0)
+
+
+
+# class Dataset(Dataset):
+#     def __init__(self, root, transform=None, pre_transform=None, pre_filter=None):
+#         super().__init__(root, transform, pre_transform, pre_filter)
+#         self.raw_paths = []
+#         for entry in os.listdir(root):
+#             path = os.path.join(root, entry)
+#             if os.path.isfile(path):
+#                 self.raw_paths.append(path)
+        
+#         self.processed_dir = f'{root}/processed_dir'
+#         self.raw_dir = f'{root}/raw_dir'
+#     @property
+#     def raw_file_names(self):
+#         # return ['some_file_1', 'some_file_2', ...]
+#         raw_files = []
+#         for entry in os.listdir(self.root):
+#             path = os.path.join(self.root, entry)
+#             if os.path.isfile(path):
+#                 raw_files.append(entry)
+#         return raw_files
+
+#     @property
+#     def processed_file_names(self):
+#         processed_files = []
+#         for root, dirs, files in os.walk(self.processed_dir):
+#             processed_files.append(files)
+
+#         return processed_files
+
+#         # return ['data_1.pt', 'data_2.pt', ...]
+
+#     def download(self):
+#         # Download to `self.raw_dir`.
+#         # path = download_url(, self.raw_dir)
+#         # ...
+#         raise NotImplementedError
+
+#     def process(self):
+#         idx = 0
+#         for raw_path in self.raw_paths:
+#             # Read data from `raw_path`.
+#             data = load_and_parse_graph(raw_path)
+
+#             if self.pre_filter is not None and not self.pre_filter(data):
+#                 continue
+
+#             if self.pre_transform is not None:
+#                 data = self.pre_transform(data)
+
+#             torch.save(data, osp.join(self.processed_dir, f'data_{idx}.pt'))
+#             idx += 1
+
+#     def len(self):
+#         return len(self.processed_file_names)
+
+#     def get(self, idx):
+#         data = torch.load(osp.join(self.processed_dir, f'data_{idx}.pt'))
+#         return data
+
+
+# class GraphDataLoader(DataLoader):
+#     def __init__(
+#         dataset,
+#         batch_size,
+#         shuffle,
+#         follow_batch,
+#         exclude_keys,
+#         **kwargs
+#     ):
+#         super.__init__(dataset, batch_size, shuffle, follow_batch, exclude_keys, **kwargs)
+
+#     def
 
 class DataLoader:
     def __init__(
