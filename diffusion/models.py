@@ -124,6 +124,7 @@ class CondDiffusionModel(nn.Module):
     def __init__(self, backbone, backbone_params, input_shape, encoding_type, encoding_dim, max_diffusion_steps = 100, noise_schedule = "linear", device = "cpu", **kwargs):
         super().__init__()
         if backbone == "mlp" or backbone == "res_mlp":
+            self.modality = "image"
             with open_dict(backbone_params):
                 backbone_params.update({
                     "in_size": np.prod(input_shape),
@@ -132,6 +133,7 @@ class CondDiffusionModel(nn.Module):
                     "device": device,
                 })
         elif backbone == "unet" or backbone == "cond_unet":
+            self.modality = "image"
             with open_dict(backbone_params):
                 backbone_params.update({
                     "in_channels": input_shape[0],
@@ -141,6 +143,7 @@ class CondDiffusionModel(nn.Module):
                     "device": device,
                 })
         elif backbone == "vit":
+            self.modality = "image"
             with open_dict(backbone_params):
                 backbone_params.update({
                     "in_channels": input_shape[0],
@@ -150,6 +153,7 @@ class CondDiffusionModel(nn.Module):
                     "device": device,
                 })
         elif backbone == "res_gnn_block" or backbone == "res_gnn" or backbone == "graph_unet":
+            self.modality = "graph"
             with open_dict(backbone_params):
                 backbone_params.update({
                     "in_node_features": input_shape[1],
@@ -208,7 +212,10 @@ class CondDiffusionModel(nn.Module):
     def reverse_samples(self, B, cond, intermediate_every = 0):
         # B: batch size
         # intermediate_every: determines how often intermediate diffusion steps are saved and returned. 0 = no intermediates returned
-        batch_shape = (B, *self.input_shape)
+        if self.modality == "image":
+            batch_shape = (B, *self.input_shape)
+        else: # graphs
+            batch_shape = (B, cond.x.shape[0], self.input_shape[1])
         x = self._epsilon_dist.sample(batch_shape).squeeze(dim = -1) # (B, C, H, W)
         intermediates = [x]
         for t in range(self.max_diffusion_steps, 0 , -1):
@@ -220,9 +227,12 @@ class CondDiffusionModel(nn.Module):
             x = x + self._sigma[t-1] * z
         intermediates.append(x) # append final image
         # normalize x
-        x_max = torch.amax(x, dim=(1,2,3), keepdim=True)
-        x_min = torch.amin(x, dim=(1,2,3), keepdim=True)
-        x_normalized = (x - x_min)/(x_max - x_min)
+        if self.modality == "image":
+            x_max = torch.amax(x, dim=(1,2,3), keepdim=True)
+            x_min = torch.amin(x, dim=(1,2,3), keepdim=True)
+            x_normalized = (x - x_min)/(x_max - x_min)
+        else:
+            x_normalized = x
         return x_normalized, intermediates
     
     def compute_pos_encodings(self, t):

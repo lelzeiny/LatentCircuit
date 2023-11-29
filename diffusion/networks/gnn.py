@@ -74,7 +74,7 @@ class ResGNNBlock(nn.Module):
         return x, data, t # so we can use Sequential
     
 class ResGNN(nn.Module):
-    def __init__(self, in_node_features, out_node_features, hidden_node_features, cond_node_features, edge_features, layers_per_block, encoding_dim, dropout=0.0, device="cpu"):
+    def __init__(self, in_node_features, out_node_features, hidden_size, hidden_node_features, cond_node_features, edge_features, layers_per_block, encoding_dim, dropout=0.0, device="cpu"):
         super().__init__()
         self.in_node_features = in_node_features
         self.out_node_features = out_node_features
@@ -82,12 +82,13 @@ class ResGNN(nn.Module):
         self.edge_features = edge_features
 
         self._gnn_blocks = []
-        
+        self.use_enc = not (hidden_size == in_node_features == out_node_features)
+        if self.use_enc:
+            self._gnn_blocks.append(GConvLayer(in_node_features, hidden_size))
         for i, hidden_node_size in enumerate(hidden_node_features):
-            self._gnn_blocks.append(GConvLayer(in_node_features if i==0 else hidden_node_features[i-1], hidden_node_size))
             self._gnn_blocks.append(ResGNNBlock(
-                in_node_features=hidden_node_size, # note that this means after each block there is a large bottleneck
-                out_node_features=hidden_node_size,
+                in_node_features=hidden_size, # note that this means after each block there is a large bottleneck
+                out_node_features=hidden_size,
                 hidden_node_features=hidden_node_size,
                 cond_node_features=cond_node_features,
                 edge_features=edge_features,
@@ -98,12 +99,15 @@ class ResGNN(nn.Module):
                 dropout=dropout,
                 device=device,
             ))
-        out_layer = GConvLayer(hidden_node_features[-1], out_node_features)
-        self._network = nn.Sequential(*self._gnn_blocks, out_layer)
+        if self.use_enc:
+            self._gnn_blocks.append(GConvLayer(hidden_size, out_node_features))
+        self._network = nn.Sequential(*self._gnn_blocks)
+        print("ENCODER USED IN RESGNN", self.use_enc)
 
     def forward(self, x, cond, t_embed):
+        x_skip = x
         x,_,_ = self._network((x, cond, t_embed))
-        return x
+        return (x + x_skip if self.use_enc else x)
 
 class GraphUNet(nn.Module):
     def __init__(
@@ -186,6 +190,7 @@ class GraphUNet(nn.Module):
         # x is (B, V, F)
         B, _, _ = x.shape
         assert t_enc.shape[0] == B and len(t_enc.shape) == 2, "t has to have shape (B, E)"
+        x_skip = x
 
         # downward branch
         skip_images = []
@@ -200,4 +205,4 @@ class GraphUNet(nn.Module):
             x = torch.cat((x, skip_images[-(i+1)]), dim = -1)
             x, _, _ = up_block((x, data, t_enc))
         
-        return x
+        return x + x_skip

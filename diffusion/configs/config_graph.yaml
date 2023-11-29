@@ -1,7 +1,7 @@
 defaults:
   - _self_
   - placement-v0
-  - model: graph-unet
+  - model: res-gnn
   - override hydra/hydra_logging: none
   - override hydra/job_logging: stdout
 
@@ -30,13 +30,14 @@ model:
 
 # training params
 batch_size: 64
-val_batch_size: 256
+val_batch_size: 64
 train_steps: 300000
 print_every: 1000 #1000
-display_images: 16
+display_examples: 1
 lr: 3e-4
 augment: False
-data_limit: none
+train_data_limit: 10
+val_data_limit: 1
 
 hydra:
   output_subdir: null

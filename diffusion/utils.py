@@ -13,10 +13,13 @@ from torch_geometric.utils import from_networkx
 from PIL import Image, ImageDraw
 
 @torch.no_grad()
-def validate(x_val, model):
+def validate(x_val, model, cond=None):
     model.eval()
     t = torch.randint(1, model.max_diffusion_steps + 1, [x_val.shape[0]], device = x_val.device)
-    loss, model_metrics = model.loss(x_val, t)
+    if cond is None:
+        loss, model_metrics = model.loss(x_val, t)
+    else:
+        loss, model_metrics = model.loss(x_val, cond, t)
     logs = {
         "loss": loss.cpu().item()
     }
@@ -83,6 +86,56 @@ def display_forward_samples(x_val, model, logger, intermediate_every = 200, pref
     for idx, (image, intermediate_image) in enumerate(zip(
         torch.movedim(x_val, 1, -1).cpu().numpy(),
         torch.movedim(intermediates, 1, -1).cpu().numpy(),
+    )):
+        log_image = wandb.Image(image)
+        log_intermediate = wandb.Image(intermediate_image)
+        logs = {
+            "forward_examples": {
+                "image": log_image,
+                "intermediates": log_intermediate,
+            },
+        }
+        for stat_name, stat in intermediate_stats.items():
+            logs["forward_examples"][stat_name] = stat[idx]
+        logger.add(logs, prefix = prefix)
+    model.train()
+
+@torch.no_grad()
+def display_graph_samples(batch_size, cond_val, model, logger, intermediate_every = 200, prefix = "val"):
+    model.eval()
+    samples, intermediates = model.reverse_samples(batch_size, cond_val, intermediate_every = intermediate_every)
+    intermediate_stats = compute_intermediate_stats(intermediates)
+    intermediate_images = [generate_batch_visualizations(inter, cond_val) for inter in intermediates]
+    intermediate_images = torch.cat(intermediate_images, dim = -1) # concat along width
+    sample_images = generate_batch_visualizations(samples, cond_val)
+    for idx, (image, intermediate_image) in enumerate(zip(
+        torch.movedim(sample_images, 1, -1).cpu().numpy(),
+        torch.movedim(intermediate_images, 1, -1).cpu().numpy()
+    )):
+        log_image = wandb.Image(image)
+        log_intermediate = wandb.Image(intermediate_image)
+        logs = {
+            "reverse_examples": {
+                "sample": log_image,
+                "intermediates": log_intermediate,
+            },
+        }
+        for stat_name, stat in intermediate_stats.items():
+            logs["reverse_examples"][stat_name] = stat[idx]
+        logger.add(logs, prefix = prefix)
+    model.train()
+
+@torch.no_grad()
+def display_forward_graph_samples(x_val, cond_val, model, logger, intermediate_every = 200, prefix = "val"):
+    model.eval()
+    intermediates = model.forward_samples(x_val, intermediate_every = intermediate_every)
+    intermediate_stats = compute_intermediate_stats(intermediates)
+    intermediate_images = [generate_batch_visualizations(inter, cond_val) for inter in intermediates]
+    intermediate_images = torch.cat(intermediate_images, dim = -1) # concat along width
+    x_images = generate_batch_visualizations(x_val, cond_val)
+    for idx, (image, intermediate_image) in enumerate(zip(
+        torch.movedim(x_images, 1, -1).cpu().numpy(),
+        torch.movedim(intermediate_images, 1, -1).cpu().numpy(),
     )):
         log_image = wandb.Image(image)
         log_intermediate = wandb.Image(intermediate_image)
@@ -190,23 +243,54 @@ def load_data(dataset_name, augment = False, train_data_limit = None):
         train_set = Subset(train_set, torch.arange(train_data_limit))
     return train_set, val_set, classes
 
-def load_graph_data(dataset_name, augment = False, train_data_limit = None):
+def load_graph_data(dataset_name, augment = False, train_data_limit = None, val_data_limit = None):
     dataset_path = os.path.join(os.path.dirname(__file__), f'../datasets/graph/{dataset_name}')
     if dataset_name == "placement-v0":
+        TRAIN_SIZE = 32
+        VAL_SIZE = 3
+        if train_data_limit is None or train_data_limit == "none":
+            train_data_limit = TRAIN_SIZE
+        if val_data_limit is None or val_data_limit == "none":
+            val_data_limit = VAL_SIZE
+        assert train_data_limit <= TRAIN_SIZE and val_data_limit <= VAL_SIZE, "data limits invalid"
         chip_size = 250
-        val_set = [] #TODO fix this
-        train_cond_path = os.path.join(dataset_path, "graph0.pickle")
-        train_x_path = os.path.join(dataset_path, "output0.pickle")
-        train_cond = load_and_parse_graph(train_cond_path)
-        train_x = torch.tensor(open_pickle(train_x_path) / 1000, dtype=torch.float32) # TODO fix this
-        train_cond.x = (train_cond.x / (chip_size))
-        train_x = 2 * (train_x / chip_size) - 1
-        train_set = [(train_x, train_cond)] 
+        train_set = []
+        val_set = []
+        path = pathlib.Path(dataset_path)
+        for i in range(TRAIN_SIZE + VAL_SIZE):
+            if not (i<train_data_limit or (i>=TRAIN_SIZE and i-TRAIN_SIZE<val_data_limit)):
+                continue
+            cond_path = os.path.join(dataset_path, f"graph{i}.pickle")
+            x_path = os.path.join(dataset_path, f"output{i}.pickle")
+            cond = load_and_parse_graph(cond_path)
+            x = open_pickle(x_path)
+            x, cond = preprocess_graph(x, cond, chip_size)
+            if i<TRAIN_SIZE:
+                train_set.append((x, cond))
+            else:
+                val_set.append((x, cond))
     else:
         raise NotImplementedError
-    if train_data_limit is not None and train_data_limit != "none":
-        train_set = Subset(train_set, torch.arange(train_data_limit))
     return train_set, val_set
+
+def preprocess_graph(x, cond, chip_size):
+    # normalizes input data
+    cond.x = (cond.x / (chip_size))
+    x = torch.tensor(x / 1000, dtype=torch.float32) # TODO fix this
+    x = 2 * (x / chip_size) - 1
+    return x, cond
+
+def generate_batch_visualizations(x, cond):
+    # x has shape (B, V, 2)
+    # cond is data object, cond.x contains width and heights of nodes
+    B, V, F = x.shape
+    x = x.cpu()
+    attr = cond.x.cpu() # (V, 2)
+    image_list = []
+    for i in range(B):
+        img = torch.tensor(visualize(x[i], attr)).movedim(-1, -3) # images should be C, H, W
+        image_list.append(img)
+    return torch.stack(image_list, dim=0)
 
 class DataLoader:
     def __init__(
@@ -276,6 +360,8 @@ class GraphDataLoader:
         self.val_batch_size = val_batch_size
         self.train_set = train_dataset
         self.val_set = val_dataset
+        self._display_x = {}
+        self._display_y = {}
     
     def get_batch(self, split):
         assert split in ("train", "val"), "split argument has to be one of 'train' or 'val'"
@@ -284,6 +370,16 @@ class GraphDataLoader:
         idx = torch.randint(0, len(dataset), [1], device = self.device) # TODO support larger batch sizes
         x, y = dataset[idx]
         return x.to(self.device).view(1, *x.shape).expand(batch_size, *x.shape), y.to(self.device)
+
+    def get_display_batch(self, display_batch_size, split="val"):
+        batch_size = self.val_batch_size if split == "val" else self.train_batch_size
+        assert display_batch_size <= batch_size, "num images must be smaller than batch size"
+        if (self._display_x.get(split, None) is None) or (self._display_y.get(split, None) is None):
+            x, y = self.get_batch(split)
+            # self._display_x[split] = x[:display_batch_size]
+            # self._display_y[split] = y
+        # return self._display_x[split], self._display_y[split]
+        return x[:display_batch_size], y # TODO return deterministically
 
     def get_train_size(self):
         return len(self.train_set)
@@ -349,28 +445,33 @@ def hsv_to_rgb(h, s, v):
 
     return int(r * 255), int(g * 255), int(b * 255)
 
-def visualize(X, attr):
-    """ Visualizes the X with node attributes, returning an numpy image"""
+def visualize(x, attr):
+    """ 
+    Visualizes the X with node attributes, returning an numpy image
+    x,y are floats normalized to canvas size (from -1 to 1)
+    attr are also normalized to canvas size
+    """
 
-    width, height = 128
+    width, height = 128, 128
     background_color = "white"
-
     image = Image.new("RGB", (width, height), background_color)
-
     draw = ImageDraw.Draw(image)
 
-    h_step = 1 / len(X)
-    
+    h_step = 1 / len(x)
 
-    #pos[0] = x
-    #pos[1] = y
-    #shape[0] = width
-    #shape[1] = height
-    for i, (pos, shape) in enumerate(zip(X, attr)):
-        topLeft = (pos[0] - width / 2, pos[1] + height / 2)
-        bottomRight = (pose[0] + width / 2, pose[1] - height / 2)
-        color = hsv_to_rgb(i * h_step, 1, 1)
-        draw.rectangle([topLeft, bottomRight], fill=color)
+    for i, (pos, shape) in enumerate(zip(x, attr)):
+        left = pos[0] - shape[0]/2
+        top = pos[1] + shape[1]/2
+        right = pos[0] + shape[0]/2
+        bottom = pos[1] - shape[1]/ 2
+        inbounds = (left>-1) and (top<1) and (right<1) and (bottom>-1)
+
+        left = (0.5 + left/2) * width
+        right = (0.5 + right/2) * width
+        top = (0.5 - top/2) * height
+        bottom = (0.5 - bottom/2) * height
+        color = hsv_to_rgb(i * h_step, 1, 0.9 if inbounds else 0.5)
+        draw.rectangle([left, top, right, bottom], fill=color)
 
     return np.array(image)
 
