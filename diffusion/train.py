@@ -1,17 +1,18 @@
 import utils
 import torch
 import hydra
-# import models
-# from omegaconf import OmegaConf, open_dict
-# import common
+import models
+from omegaconf import OmegaConf, open_dict
+from torch_geometric.loader import DataLoader
+import common
 import os
 import time
 
 @hydra.main(version_base=None, config_path="configs", config_name="config")
 def main(cfg):
     # Preliminaries
-    data = utils.load_and_parse_graph("./tests/graph0.pickle")
-    import pdb; pdb.set_trace()
+    # data = utils.load_and_parse_graph("./tests/graph0.pickle")
+    # import pdb; pdb.set_trace()
     OmegaConf.set_struct(cfg, True)
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     log_dir = os.path.join(cfg.log_dir, f"{cfg.task}.{cfg.method}.{cfg.seed}")
@@ -24,9 +25,13 @@ def main(cfg):
     torch.manual_seed(cfg.seed)
 
     # Preparing dataset
-    train_set, val_set, text_labels = utils.load_data(cfg.task, augment = cfg.augment, train_data_limit = cfg.data_limit)
-    sample_shape = train_set[0][0].shape
-    dataloader = utils.DataLoader(train_set, val_set, cfg.batch_size, cfg.val_batch_size, device)
+    # train_set, val_set, text_labels = utils.load_data(cfg.task, augment = cfg.augment, train_data_limit = cfg.data_limit)
+    # sample_shape = train_set[0][0].shape
+    # dataloader = utils.DataLoader(train_set, val_set, cfg.batch_size, cfg.val_batch_size, device)
+
+    dataset = utils.Placement_Dataset("datasets/graph")
+    dataloader = DataLoader(dataset)
+    sample_shape = (10,2)
     with open_dict(cfg):
         if cfg.family == "diffusion":
             cfg.model.update({

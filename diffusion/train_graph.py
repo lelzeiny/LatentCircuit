@@ -3,6 +3,7 @@ import torch
 import hydra
 import models
 from omegaconf import OmegaConf, open_dict
+from torch_geometric.loader import DataLoader
 import common
 import os
 import time
@@ -22,9 +23,13 @@ def main(cfg):
     torch.manual_seed(cfg.seed)
 
     # Preparing dataset
-    train_set, val_set = utils.load_graph_data(cfg.task, augment = cfg.augment, train_data_limit = cfg.train_data_limit, val_data_limit = cfg.val_data_limit)
-    sample_shape = train_set[0][0].shape
-    dataloader = utils.GraphDataLoader(train_set, val_set, cfg.batch_size, cfg.val_batch_size, device)
+    # train_set, val_set = utils.load_graph_data(cfg.task, augment = cfg.augment, train_data_limit = cfg.train_data_limit, val_data_limit = cfg.val_data_limit)
+    # sample_shape = train_set[0][0].shape
+    # dataloader = utils.GraphDataLoader(train_set, val_set, cfg.batch_size, cfg.val_batch_size, device)
+
+    dataset = utils.Placement_Dataset("datasets/graph")
+    dataloader = DataLoader(dataset)
+    sample_shape = (10,2)
     with open_dict(cfg):
         if cfg.family == "cond_diffusion":
             cfg.model.update({
@@ -49,8 +54,8 @@ def main(cfg):
     with open_dict(cfg):  # for eval/debugging
         cfg.update({
             "num_params": num_params,
-            "train_dataset": dataloader.get_train_size(),
-            "val_dataset": dataloader.get_val_size(),
+            # "train_dataset": dataloader.get_train_size(),
+            # "val_dataset": dataloader.get_val_size(),
         })
     outputs = [
         common.logger.TerminalOutput(cfg.logger.filter),
@@ -79,7 +84,9 @@ def main(cfg):
     t_1 = time.time()
     best_loss = 1e12
     while step < cfg.train_steps:
-        x, cond = dataloader.get_batch("train")
+        # x, cond = dataloader.get_batch("train")
+        batch = next(iter(dataloader))
+        import pdb; pdb.set_trace()
         # x has (B, N, 2); netlist_data is a single graph in tg.Data format
         t = torch.randint(1, cfg.model.max_diffusion_steps + 1, [x.shape[0]], device = device)
         optim.zero_grad()
