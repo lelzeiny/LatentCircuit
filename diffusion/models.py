@@ -209,12 +209,11 @@ class CondDiffusionModel(nn.Module):
         # sample epsilon and generate noisy images
         epsilon = self._epsilon_dist.sample(x.shape).squeeze(dim = -1) # (B, C, H, W) or (B, V, F)
         x_perturbed = self._sqrt_alpha_bar[t-1].view(B, *([1]*len(x.shape[1:]))) * x + self._sqrt_alpha_bar_complement[t-1].view(B, *([1]*len(x.shape[1:]))) * epsilon
-        if mask is not None: # don't perturb things covered by mask
-            x = torch.where(mask, x, x_perturbed)
-        else:
-            x = x_perturbed
+        # don't perturb things covered by mask
+        x = torch.where(mask, x, x_perturbed) if mask is not None else x_perturbed
         x = self(x, cond, t)
-        metrics = {"epsilon_theta_mean": x.detach().mean().cpu().numpy(), "epsilon_theta_std": x.detach().std().cpu().numpy()}
+        x_masked = x.detach()[torch.logical_not(mask).expand(x.shape)] if mask is not None else x.detach()
+        metrics = {"epsilon_theta_mean": x_masked.mean().cpu().numpy(), "epsilon_theta_std": x_masked.std().cpu().numpy()}
         return self._loss(x, epsilon, mask), metrics
     
     def forward_samples(self, x, cond, intermediate_every = 0):
