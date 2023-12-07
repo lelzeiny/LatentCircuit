@@ -348,7 +348,7 @@ class Placement_Dataset(Dataset):
                 if (index == None):
                     print("missing matching data")
                 x = open_pickle(osp.join(self.raw_dir, f"output{index.group(0)}.pickle"))
-                data.pos = torch.tensor(x)
+                data.y = torch.tensor(x)
 
                 # import pdb; pdb.set_trace()
                 if self.pre_filter is not None and not self.pre_filter(data):
