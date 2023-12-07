@@ -12,6 +12,7 @@ import networkx as nx
 from torch_geometric.loader import DataLoader
 from torch_geometric.data import Dataset, download_url
 from torch_geometric.data import Data
+import re
 from torch_geometric.utils import from_networkx
 from PIL import Image, ImageDraw
 
@@ -303,7 +304,7 @@ def generate_batch_visualizations(x, cond):
 class Placement_Dataset(Dataset):
     def __init__(self, root, transform=None, pre_transform=None, pre_filter=None):
         # import pdb; pdb.set_trace()
-        super().__init__(root, transform, pre_transform, pre_filter)
+        super().__init__(root, transform, pre_transform, pre_filter) 
         # self.raw_paths = []
         # for entry in os.listdir(osp.join(root, "placement-v0")):
         #     path = os.path.join(self.dataset_dir, entry)
@@ -341,16 +342,27 @@ class Placement_Dataset(Dataset):
         for raw_path in self.raw_paths:
             # Read data from `raw_path`.
             # import pdb; pdb.set_trace()
-            data = load_and_parse_graph(raw_path)
+            if ("graph" in raw_path.split("/")[-1]):
+                data = load_and_parse_graph(raw_path)
+                index = re.search("[0-9]+", raw_path)
+                if (index == None):
+                    print("missing matching data")
+                x = open_pickle(osp.join(self.raw_dir, f"output{index.group(0)}.pickle"))
+                data.pos = torch.tensor(x)
 
-            if self.pre_filter is not None and not self.pre_filter(data):
-                continue
+                # import pdb; pdb.set_trace()
+                if self.pre_filter is not None and not self.pre_filter(data):
+                    continue
 
-            if self.pre_transform is not None:
-                data = self.pre_transform(data)
+                if self.pre_transform is not None:
+                    data = self.pre_transform(data)
 
-            torch.save(data, osp.join(self.processed_dir, f'data_{idx}.pt'))
-            idx += 1
+                # import pdb; pdb.set_trace();
+
+                torch.save(data, osp.join(self.processed_dir, f'data_{idx}.pt'))
+                idx += 1
+        
+        # import pdb; pdb.set_trace()
 
     def len(self):
         return len(self.processed_file_names)
