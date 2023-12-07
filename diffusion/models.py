@@ -131,7 +131,7 @@ class CondDiffusionModel(nn.Module):
     time_encodings = {"sinusoid": pos_encoding.get_positional_encodings, "none": pos_encoding.get_none_encodings}
     # conditioning vec can be arbitrary
     # here we use a torch_geometry object
-    def __init__(self, backbone, backbone_params, input_shape, encoding_type, encoding_dim, max_diffusion_steps = 100, noise_schedule = "linear", device = "cpu", **kwargs):
+    def __init__(self, backbone, backbone_params, input_shape, encoding_type, encoding_dim, max_diffusion_steps = 100, noise_schedule = "linear", mask_key = None, device = "cpu", **kwargs):
         super().__init__()
         if backbone == "mlp" or backbone == "res_mlp":
             self.modality = "image"
@@ -173,6 +173,7 @@ class CondDiffusionModel(nn.Module):
                 })
         if encoding_dim > 0:
             self.encoding = CondDiffusionModel.time_encodings[encoding_type](max_diffusion_steps, encoding_dim).to(device)
+        self.mask_key = mask_key
         self.encoding_dim = encoding_dim
         self._reverse_model = CondDiffusionModel.backbones[backbone](**backbone_params)
         self.input_shape = input_shape
@@ -184,7 +185,7 @@ class CondDiffusionModel(nn.Module):
         else:
             raise NotImplementedError
         
-        self._loss = nn.MSELoss(reduction = "mean")
+        self._lossfn = nn.MSELoss(reduction = "mean")
 
         # cache some variables:
         self._sqrt_alpha_bar = torch.sqrt(self._alpha_bar)
@@ -200,26 +201,38 @@ class CondDiffusionModel(nn.Module):
         return self._reverse_model(x, cond, t_embed).view(*x.shape)
     
     def loss(self, x, cond, t):
-        B = x.shape[0] # x is (B, C, H, W) for images
+        B = x.shape[0] # x is (B, C, H, W) for images, (B, V, F) for graphs
         assert t.shape[0] == B and len(t.shape) == 1, "t has to have shape (B)"
+        mask = None
+        if self.mask_key and self.mask_key in cond:
+            mask = self.get_mask(x, cond)
         # sample epsilon and generate noisy images
-        epsilon = self._epsilon_dist.sample(x.shape).squeeze(dim = -1) # (B, C, H, W)
-        x = self._sqrt_alpha_bar[t-1].view(B, *([1]*len(x.shape[1:]))) * x + self._sqrt_alpha_bar_complement[t-1].view(B, *([1]*len(x.shape[1:]))) * epsilon
+        epsilon = self._epsilon_dist.sample(x.shape).squeeze(dim = -1) # (B, C, H, W) or (B, V, F)
+        x_perturbed = self._sqrt_alpha_bar[t-1].view(B, *([1]*len(x.shape[1:]))) * x + self._sqrt_alpha_bar_complement[t-1].view(B, *([1]*len(x.shape[1:]))) * epsilon
+        if mask is not None: # don't perturb things covered by mask
+            x = torch.where(mask, x, x_perturbed)
+        else:
+            x = x_perturbed
         x = self(x, cond, t)
         metrics = {"epsilon_theta_mean": x.detach().mean().cpu().numpy(), "epsilon_theta_std": x.detach().std().cpu().numpy()}
-        return self._loss(x, epsilon), metrics
+        return self._loss(x, epsilon, mask), metrics
     
-    def forward_samples(self, x, intermediate_every = 0):
+    def forward_samples(self, x, cond, intermediate_every = 0):
         intermediates = [x]
+        mask = None
+        if self.mask_key and self.mask_key in cond:
+            mask = self.get_mask(x, cond)
         for t in range(self.max_diffusion_steps):
             epsilon = self._epsilon_dist.sample(x.shape).squeeze(dim = -1)
             x_t = self._sqrt_alpha_bar[t] * x + self._sqrt_alpha_bar_complement[t] * epsilon
+            if mask is not None: # don't perturb things covered by mask
+                x_t = torch.where(mask, x, x_t)
             if intermediate_every and t<(self.max_diffusion_steps-1) and t % intermediate_every == 0:
                 intermediates.append(x_t)
         intermediates.append(x_t) # append final image
         return intermediates
 
-    def reverse_samples(self, B, cond, intermediate_every = 0):
+    def reverse_samples(self, B, x_in, cond, intermediate_every = 0):
         # B: batch size
         # intermediate_every: determines how often intermediate diffusion steps are saved and returned. 0 = no intermediates returned
         if self.modality == "image":
@@ -227,14 +240,24 @@ class CondDiffusionModel(nn.Module):
         else: # graphs
             batch_shape = (B, cond.x.shape[0], self.input_shape[1])
         x = self._epsilon_dist.sample(batch_shape).squeeze(dim = -1) # (B, C, H, W)
+        mask = None
+        if self.mask_key and self.mask_key in cond:
+            mask = self.get_mask(x_in, cond)
+            x = torch.where(mask, x_in, x)
         intermediates = [x]
+        
         for t in range(self.max_diffusion_steps, 0 , -1):
             t_vec = torch.tensor(t, device=x.device).expand(B)
             z = self._epsilon_dist.sample(batch_shape).squeeze(dim = -1) if t>1 else torch.zeros_like(x)
-            x = (1.0/torch.sqrt(1 - self._beta[t-1])) * (x - (self._beta[t-1]/self._sqrt_alpha_bar_complement[t-1]) * self(x, cond, t_vec))
+            x_denoised = (1.0/torch.sqrt(1 - self._beta[t-1])) * (x - (self._beta[t-1]/self._sqrt_alpha_bar_complement[t-1]) * self(x, cond, t_vec))
+            # don't denoise things covered by mask
+            x = torch.where(mask, x, x_denoised) if mask is not None else x_denoised
             if intermediate_every and t>1 and t % intermediate_every == 0:
                 intermediates.append(x)
-            x = x + self._sigma[t-1] * z
+            x_perturbed = x + self._sigma[t-1] * z
+            # don't perturb things covered by mask
+            x = torch.where(mask, x, x_perturbed) if mask is not None else x_perturbed
+        
         intermediates.append(x) # append final image
         # normalize x
         if self.modality == "image":
@@ -253,6 +276,24 @@ class CondDiffusionModel(nn.Module):
         encoding = self.encoding[t-1, :].view(B, self.encoding_dim)
         return encoding
 
+    def get_mask(self, x, cond):
+        if self.modality == "graph":
+            mask = cond[self.mask_key]
+            B, V, F = x.shape
+            mask = mask.view(1, V, 1)
+            return mask
+        else:
+            raise NotImplementedError
+        
+    def _loss(self, x, target, mask = None):
+        if mask is not None:
+            numel = torch.numel(mask)
+            squared_error = torch.square(x-target)
+            squared_error.masked_fill_(mask, 0)
+            mse = torch.mean(squared_error) * (numel / (numel - torch.sum(mask)))
+            return mse
+        else:
+            return self._lossfn(x, target)
 
 def get_linear_sched(T, beta_1, beta_T):
     # returns noise schedule beta as numpy array with shape (T)

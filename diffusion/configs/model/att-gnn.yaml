@@ -4,7 +4,7 @@ backbone_params:
   cond_node_features: 2
   hidden_size: 2 # 8
   hidden_node_features: [256, 256] #[64, 128, 128, 64]
-  attention_node_features: [128, 128]
+  attention_node_features: [64, 64]
   layers_per_block: 3 # 4
   dropout: 0.0
   num_heads: 4

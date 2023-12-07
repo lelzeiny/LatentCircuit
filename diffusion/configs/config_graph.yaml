@@ -21,6 +21,7 @@ logger:
 # model params
 implementation: custom
 model:
+  mask_key: is_ports
   max_diffusion_steps: 1000
   noise_schedule: linear
   encoding_type: sinusoid
