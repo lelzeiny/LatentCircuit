@@ -1,14 +1,14 @@
 defaults:
   - _self_
-  - placement-v0
-  - model: res-gnn
+  - placement-mini-v1
+  - model: att-gnn
   - override hydra/hydra_logging: none
   - override hydra/job_logging: stdout
 
 family: cond_diffusion
 task: cifar10
 num_classes: 10
-method: debug_gnn
+method: debug_att_gnn
 seed: 61
 log_dir: logs/diffusion_debug
 
@@ -36,8 +36,8 @@ print_every: 1000 #1000
 display_examples: 1
 lr: 3e-4
 augment: False
-train_data_limit: 10
-val_data_limit: 1
+train_data_limit: none
+val_data_limit: none
 
 hydra:
   output_subdir: null

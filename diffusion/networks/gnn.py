@@ -4,6 +4,7 @@ import torch_geometric.nn as tgn
 import torch.nn as nn
 import torch.functional as F
 from .mlp import FiLM
+from .vit import AttentionBlock
 
 class GConvLayer(nn.Module):
     def __init__(self, in_node_features, out_node_features):
@@ -16,7 +17,7 @@ class GConvLayer(nn.Module):
         return self._layer(x, edge_index), data, t_embed
 
 class ResGNNBlock(nn.Module):
-    def __init__(self, in_node_features, out_node_features, hidden_node_features, cond_node_features, edge_features, num_layers, encoding_dim, residual=True, norm=True, dropout=0.0, device="cpu"):
+    def __init__(self, in_node_features, out_node_features, hidden_node_features, cond_node_features, edge_features, num_layers, encoding_dim, residual=True, norm=True, dropout=0.0, device="cpu", **kwargs):
         super().__init__()
         self.in_node_features = in_node_features
         self.out_node_features = out_node_features
@@ -72,9 +73,76 @@ class ResGNNBlock(nn.Module):
         if self.residual:
             x = x + x_skip 
         return x, data, t # so we can use Sequential
-    
+
+class AttGNNBlock(nn.Module):
+    def __init__(self, in_node_features, out_node_features, hidden_node_features, cond_node_features, edge_features, num_layers, encoding_dim, residual=True, norm=True, dropout=0.0, device="cpu", **kwargs):
+        super().__init__()
+        self.in_node_features = in_node_features
+        self.out_node_features = out_node_features
+        self.hidden_node_features = hidden_node_features
+        self.edge_features = edge_features
+        self.residual = residual
+        if residual:
+            assert in_node_features == out_node_features, "input and output features must be equal to perform residual connection"
+        self._gconv_layers = []
+        self._attention_layers = []
+        self._linear_layers = []
+
+        self._cond_layer = FiLM(encoding_dim, hidden_node_features, channel_axis=-1) if encoding_dim>0 else None
+        for i in range(num_layers):
+            in_features = in_node_features + cond_node_features if i==0 else hidden_node_features
+            out_features = hidden_node_features if i<(num_layers-1) else out_node_features
+            # self._gconv_layers.append(tgn.GATConv(in_features, out_features, edge_dim=edge_features))
+            self._gconv_layers.append(tgn.GCNConv(in_features, hidden_node_features))
+            self._attention_layers.append(AttentionBlock(kwargs["num_heads"], hidden_node_features + 4, kwargs["ff_num_layers"], kwargs["ff_size_factor"], dropout))
+            self._linear_layers.append(nn.Linear(hidden_node_features + 4, out_features))
+        
+        self._gconv_layers = nn.ModuleList(self._gconv_layers)
+        self._attention_layers = nn.ModuleList(self._attention_layers)
+        self._linear_layers = nn.ModuleList(self._linear_layers)
+        # self.linear = nn.Linear(self.hidden_node_features, self.out_node_features)
+        if norm:
+            self._norm = nn.GroupNorm(1, hidden_node_features)
+        else:
+            self._norm = None
+        self._nonlinear = nn.ReLU()
+        self._dropout = nn.Dropout(p = dropout)
+
+    def forward(self, x_in): # data is conditioning info
+        x, data, t = x_in
+        B, V, F = x.shape
+        cond_x, edge_index, edge_attr = data.x, data.edge_index, data.edge_attr
+        cond_x = cond_x.view(1, *cond_x.shape).expand(B, -1, -1)
+        # TODO replace with GATConv or better, and make use of edge attributes
+        x_skip = x
+        x_att_features = torch.cat((x, cond_x), dim=-1)
+        x = x_att_features
+        for i, (linear, conv, attention) in enumerate(zip(self._linear_layers[:-1], self._gconv_layers[:-1], self._attention_layers[:-1])):
+            if self._norm is not None and x.shape[-1] == self.hidden_node_features:
+                x = torch.movedim(x, -1, 1)
+                x = self._norm(x)
+                x = torch.movedim(x, 1, -1)
+            x = conv(x, edge_index)
+            x = self._nonlinear(x)
+            x = torch.cat((x, x_att_features), dim=-1)
+            x = attention(x)
+            x = linear(x)
+            x = self._nonlinear(x)
+            x = self._dropout(x)
+        x = self._gconv_layers[-1](x, edge_index)
+        if (not self._cond_layer is None):
+            x = self._cond_layer(x, t)
+        x = self._nonlinear(x)
+        x = torch.cat((x, x_att_features), dim=-1)
+        x = self._attention_layers[-1](x)
+        x = self._linear_layers[-1](x)
+        if self.residual:
+            x = x + x_skip 
+        return x, data, t # so we can use Sequential
+
 class ResGNN(nn.Module):
-    def __init__(self, in_node_features, out_node_features, hidden_size, hidden_node_features, cond_node_features, edge_features, layers_per_block, encoding_dim, dropout=0.0, device="cpu"):
+    blocks = {"res": ResGNNBlock, "att": AttGNNBlock}
+    def __init__(self, in_node_features, out_node_features, hidden_size, hidden_node_features, cond_node_features, edge_features, layers_per_block, encoding_dim, dropout=0.0, device="cpu", block_type="res", **kwargs):
         super().__init__()
         self.in_node_features = in_node_features
         self.out_node_features = out_node_features
@@ -86,6 +154,59 @@ class ResGNN(nn.Module):
         if self.use_enc:
             self._gnn_blocks.append(GConvLayer(in_node_features, hidden_size))
         for i, hidden_node_size in enumerate(hidden_node_features):
+            self._gnn_blocks.append(ResGNN.blocks[block_type](
+                in_node_features=hidden_size, # note that this means after each block there is a large bottleneck
+                out_node_features=hidden_size,
+                hidden_node_features=hidden_node_size,
+                cond_node_features=cond_node_features,
+                edge_features=edge_features,
+                num_layers=layers_per_block,
+                encoding_dim=encoding_dim,
+                residual=True,
+                norm=True,
+                dropout=dropout,
+                device=device,
+                **kwargs,
+            ))
+        if self.use_enc:
+            self._gnn_blocks.append(GConvLayer(hidden_size, out_node_features))
+        self._network = nn.Sequential(*self._gnn_blocks)
+        print("ENCODER USED IN RESGNN", self.use_enc)
+
+    def forward(self, x, cond, t_embed):
+        x_skip = x
+        x,_,_ = self._network((x, cond, t_embed))
+        return (x + x_skip if self.use_enc else x)
+
+class AttGNN(nn.Module):
+    # Same as ResGNN, but with attention layer in between resBlocks
+    def __init__(
+            self, 
+            in_node_features, 
+            out_node_features, 
+            hidden_size, 
+            hidden_node_features,
+            attention_node_features, 
+            cond_node_features, 
+            edge_features, 
+            layers_per_block, 
+            encoding_dim,
+            dropout=0.0, 
+            device="cpu",
+            **kwargs, # should contain attention attention parameters
+            ):
+        super().__init__()
+        self.in_node_features = in_node_features
+        self.out_node_features = out_node_features
+        self.hidden_node_features = hidden_node_features
+        self.attention_node_features = attention_node_features
+        self.edge_features = edge_features
+
+        self._gnn_blocks = []
+        self.use_enc = not (hidden_size == in_node_features == out_node_features)
+        if self.use_enc:
+            self._gnn_blocks.append(GConvLayer(in_node_features, hidden_size))
+        for i, (hidden_node_size, attention_node_size) in enumerate(zip(hidden_node_features, attention_node_features)):
             self._gnn_blocks.append(ResGNNBlock(
                 in_node_features=hidden_size, # note that this means after each block there is a large bottleneck
                 out_node_features=hidden_size,
@@ -99,10 +220,24 @@ class ResGNN(nn.Module):
                 dropout=dropout,
                 device=device,
             ))
+            self._gnn_blocks.append(AttGNNBlock( # TODO feed in original x, y coordinates
+                in_node_features=hidden_size, # note that this means after each block there is a large bottleneck
+                out_node_features=hidden_size,
+                hidden_node_features=attention_node_size,
+                cond_node_features=cond_node_features,
+                edge_features=edge_features,
+                num_layers=1,
+                encoding_dim=encoding_dim,
+                residual=True,
+                norm=True,
+                dropout=dropout,
+                device=device,
+                **kwargs,
+            ))
         if self.use_enc:
             self._gnn_blocks.append(GConvLayer(hidden_size, out_node_features))
         self._network = nn.Sequential(*self._gnn_blocks)
-        print("ENCODER USED IN RESGNN", self.use_enc)
+        print("ENCODER USED IN ATTGNN", self.use_enc)
 
     def forward(self, x, cond, t_embed):
         x_skip = x

@@ -117,7 +117,17 @@ class DiffusionModel(nn.Module):
         return encoding
 
 class CondDiffusionModel(nn.Module):
-    backbones = {"mlp": networks.ConditionalMLP, "res_mlp": networks.ResidualMLP, "unet": networks.UNet, "cond_unet": networks.CondUNet, "vit": networks.ViT, "res_gnn": networks.ResGNN, "res_gnn_block": networks.ResGNNBlock, "graph_unet": networks.GraphUNet}
+    backbones = {
+        "mlp": networks.ConditionalMLP, 
+        "res_mlp": networks.ResidualMLP, 
+        "unet": networks.UNet, 
+        "cond_unet": networks.CondUNet, 
+        "vit": networks.ViT, 
+        "res_gnn": networks.ResGNN, 
+        "res_gnn_block": networks.ResGNNBlock, 
+        "graph_unet": networks.GraphUNet,
+        "att_gnn": networks.AttGNN,
+        }
     time_encodings = {"sinusoid": pos_encoding.get_positional_encodings, "none": pos_encoding.get_none_encodings}
     # conditioning vec can be arbitrary
     # here we use a torch_geometry object
@@ -152,7 +162,7 @@ class CondDiffusionModel(nn.Module):
                     "encoding_dim": encoding_dim,
                     "device": device,
                 })
-        elif backbone == "res_gnn_block" or backbone == "res_gnn" or backbone == "graph_unet":
+        elif backbone == "res_gnn_block" or backbone == "res_gnn" or backbone == "graph_unet" or backbone == "att_gnn":
             self.modality = "graph"
             with open_dict(backbone_params):
                 backbone_params.update({
