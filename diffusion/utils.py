@@ -193,6 +193,9 @@ def eval_samples(samples, x_val, cond_val):
         V, F = sample.shape
         eval_metrics.append({
             "num_vertices": V,
+            "num_edges": cond_val.edge_index.shape[1],
+            "legality_score": 1-check_legality(sample, x, cond_val.x, cond_val.is_ports, score=True),
+            "is_legal": check_legality(sample, x, cond_val.x, cond_val.is_ports, score=False),
         })
     return eval_metrics
 
@@ -576,20 +579,20 @@ def check_legality(x, y, attr, mask, score=True):
                 if (i != j):
 
                     # import pdb; pdb.set_trace()
-                    left1 = round(float(pos1[0].numpy()), 3)
-                    top1 = round(float((pos1[1] + shape1[1]).numpy()), 3)
-                    right1 = round(float((pos1[0] + shape1[0]).numpy()), 3)
-                    bottom1 = round(float(pos1[1].numpy()), 3)
+                    left1 = round(float(pos1[0]), 3)
+                    top1 = round(float((pos1[1] + shape1[1])), 3)
+                    right1 = round(float((pos1[0] + shape1[0])), 3)
+                    bottom1 = round(float(pos1[1]), 3)
 
                     left1 = (0.5 + left1/2) * width
                     right1 = (0.5 + right1/2) * width
                     top1 = (0.5 - top1/2) * height
                     bottom1 = (0.5 - bottom1/2) * height
 
-                    left2 = round(float(pos2[0].numpy()), 3)
-                    top2 = round(float((pos2[1] + shape2[1]).numpy()), 3)
-                    right2 = round(float((pos2[0] + shape2[0]).numpy()), 3)
-                    bottom2 = round(float(pos2[1].numpy()), 3)
+                    left2 = round(float(pos2[0]), 3)
+                    top2 = round(float((pos2[1] + shape2[1])), 3)
+                    right2 = round(float((pos2[0] + shape2[0])), 3)
+                    bottom2 = round(float(pos2[1]), 3)
 
                     left2 = (0.5 + left2/2) * width
                     right2 = (0.5 + right2/2) * width

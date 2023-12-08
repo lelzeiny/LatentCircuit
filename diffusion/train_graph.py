@@ -123,6 +123,7 @@ def main(cfg):
             print("generating evaluation report")
             t3 = time.time()
             utils.generate_report(cfg.eval_samples, dataloader, model, logger)
+            checkpointer.save(os.path.join(log_dir, f"step_{int(step)}.ckpt"))
             t4 = time.time()
             print(f"generated report in {t4-t3:.3f} sec")
 
