@@ -3,6 +3,7 @@ import torchvision
 import torchvision.transforms as transforms
 import numpy as np
 import wandb
+import common
 import os
 import pathlib
 import os.path as osp
@@ -13,6 +14,7 @@ from torch_geometric.loader import DataLoader
 from torch_geometric.data import Dataset, download_url
 from torch_geometric.data import Data
 from torch_geometric.utils import from_networkx
+from omegaconf import OmegaConf
 from PIL import Image, ImageDraw
 
 @torch.no_grad()
@@ -104,13 +106,16 @@ def display_forward_samples(x_val, model, logger, intermediate_every = 200, pref
     model.train()
 
 @torch.no_grad()
-def display_graph_samples(batch_size, x_val, cond_val, model, logger, intermediate_every = 200, prefix = "val"):
+def display_graph_samples(batch_size, x_val, cond_val, model, logger, intermediate_every = 200, prefix = "val", eval_function = None):
     model.eval()
     samples, intermediates = model.reverse_samples(batch_size, x_val, cond_val, intermediate_every = intermediate_every)
     intermediate_stats = compute_intermediate_stats(intermediates)
     intermediate_images = [generate_batch_visualizations(inter, cond_val) for inter in intermediates]
     intermediate_images = torch.cat(intermediate_images, dim = -1) # concat along width
     sample_images = generate_batch_visualizations(samples, cond_val)
+    # should be a list of dicts, each dict corresponds to one sample
+    eval_metrics = eval_function(samples, x_val, cond_val) if eval_function is not None else [{}] * batch_size
+    
     for idx, (image, intermediate_image) in enumerate(zip(
         torch.movedim(sample_images, 1, -1).cpu().numpy(),
         torch.movedim(intermediate_images, 1, -1).cpu().numpy()
@@ -121,12 +126,14 @@ def display_graph_samples(batch_size, x_val, cond_val, model, logger, intermedia
             "reverse_examples": {
                 "sample": log_image,
                 "intermediates": log_intermediate,
+                **eval_metrics[idx]
             },
         }
         for stat_name, stat in intermediate_stats.items():
             logs["reverse_examples"][stat_name] = stat[idx]
         logger.add(logs, prefix = prefix)
     model.train()
+    return eval_metrics
 
 @torch.no_grad()
 def display_forward_graph_samples(x_val, cond_val, model, logger, intermediate_every = 200, prefix = "val"):
@@ -153,6 +160,18 @@ def display_forward_graph_samples(x_val, cond_val, model, logger, intermediate_e
         logger.add(logs, prefix = prefix)
     model.train()
 
+@torch.no_grad()
+def generate_report(num_samples, dataloader, model, logger):
+    metrics = common.Metrics()
+    for _ in range(num_samples):
+        x_eval, cond_eval = dataloader.get_batch("val")
+        x_eval = x_eval[:1]
+        sample_metrics = display_graph_samples(1, x_eval, cond_eval, model, logger, prefix = "eval", eval_function = eval_samples)
+        for sample_metric in sample_metrics:
+            metrics.add(sample_metric)
+    # compile metrics and compute stats
+    logger.add(metrics.result(), prefix = "eval")
+
 def compute_intermediate_stats(intermediates):
     # input: intermediates is a list, each is (B, C, H, W)
     # outputs: dict of stats, each value is torch tensor with shape (B, T)
@@ -163,6 +182,18 @@ def compute_intermediate_stats(intermediates):
         stat = torch.cat(stat_list, -1)
         stats[stat_name] = stat
     return stats
+
+def eval_samples(samples, x_val, cond_val):
+    # evaluates generated samples
+    # returns a list of dicts, each dict corresponds to one sample
+    # samples and x_val are (B, V, F)
+    eval_metrics = []
+    for idx, (sample, x) in enumerate(zip(samples.cpu().numpy(), x_val.cpu().numpy())):
+        V, F = sample.shape
+        eval_metrics.append({
+            "num_vertices": V,
+        })
+    return eval_metrics
 
 def load_data(dataset_name, augment = False, train_data_limit = None):
     dataset_path = os.path.join(os.path.dirname(__file__), f'../datasets/vision/{dataset_name}')
@@ -247,7 +278,15 @@ def load_data(dataset_name, augment = False, train_data_limit = None):
     return train_set, val_set, classes
 
 def load_graph_data(dataset_name, augment = False, train_data_limit = None, val_data_limit = None):
-    dataset_sizes = {"placement-v0": (32, 3, 250, 1000), "placement-mini-v0": (4, 1, 30, 1), "placement-mini-v1": (180, 20, 20, 1)}
+    dataset_sizes = {
+        "placement-v0": (32, 3, 250, 1000), 
+        "placement-mini-v0": (4, 1, 30, 1), 
+        "placement-mini-v1": (180, 20, 20, 1),
+        "placement-mini-v2": (420, 41, 20, 1),
+        "placement-mini-v3": (3300, 380, 20, 1),
+        "placement-mid-v0": (90, 10, 60, 1),
+        "placement-mid-v1": (1500, 100, 60, 1),
+    }
     dataset_path = os.path.join(os.path.dirname(__file__), f'../datasets/graph/{dataset_name}')
     if dataset_name in dataset_sizes:
         TRAIN_SIZE, VAL_SIZE, chip_size, scale = dataset_sizes[dataset_name]
@@ -258,7 +297,6 @@ def load_graph_data(dataset_name, augment = False, train_data_limit = None, val_
         assert train_data_limit <= TRAIN_SIZE and val_data_limit <= VAL_SIZE, "data limits invalid"
         train_set = []
         val_set = []
-        path = pathlib.Path(dataset_path)
         for i in range(TRAIN_SIZE + VAL_SIZE):
             if not (i<train_data_limit or (i>=TRAIN_SIZE and i-TRAIN_SIZE<val_data_limit)):
                 continue
@@ -479,4 +517,10 @@ def visualize(x, attr):
 
     return np.array(image)
 
+def save_cfg(cfg, path):
+    with open(path, "w") as f:
+        OmegaConf.save(config=cfg, f=f)
 
+def load_cfg(path):
+    with open(path, "r") as f:
+        return OmegaConf.load(f)

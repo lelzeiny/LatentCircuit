@@ -1,6 +1,6 @@
 defaults:
   - _self_
-  - placement-mini-v1
+  - placement-mini-v3
   - model: att-gnn
   - override hydra/hydra_logging: none
   - override hydra/job_logging: stdout
@@ -30,10 +30,12 @@ model:
   beta_T: 0.02
 
 # training params
-batch_size: 64
-val_batch_size: 64
+batch_size: 64 # 64
+val_batch_size: 64 # 64
 train_steps: 300000
 print_every: 1000 #1000
+eval_every: 50000
+eval_samples: 32
 display_examples: 1
 lr: 3e-4
 augment: False

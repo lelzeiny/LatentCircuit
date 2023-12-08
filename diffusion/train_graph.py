@@ -60,6 +60,7 @@ def main(cfg):
         outputs.append(common.logger.WandBOutput(wandb_run_name, cfg))
     step = common.Counter()
     logger = common.Logger(step, outputs)
+    utils.save_cfg(cfg, os.path.join(log_dir, "config.yaml"))
 
     # Load checkpoint if exists
     checkpointer.register({
@@ -117,6 +118,13 @@ def main(cfg):
                 best_loss = val_logs["loss"]
                 checkpointer.save(os.path.join(log_dir, "best.ckpt"))
                 print("saving best model")
+
+        if (cfg.eval_every > 0) and (int(step)) % cfg.eval_every == 0:
+            print("generating evaluation report")
+            t3 = time.time()
+            utils.generate_report(cfg.eval_samples, dataloader, model, logger)
+            t4 = time.time()
+            print(f"generated report in {t4-t3:.3f} sec")
 
 if __name__=="__main__":
     main()
