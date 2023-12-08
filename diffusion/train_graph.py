@@ -107,7 +107,7 @@ def main(cfg):
             # display example images
             for split in ["train", "val"]:
                 x_disp, cond_disp = dataloader.get_display_batch(cfg.display_examples, split = split)
-                utils.display_graph_samples(cfg.display_examples, cond_disp, model, logger, prefix = split)
+                utils.display_graph_samples(cfg.display_examples, x_disp, cond_disp, model, logger, prefix = split)
                 utils.display_forward_graph_samples(x_disp, cond_disp, model, logger, prefix = split)
             logger.write()
             t_1 = t_2

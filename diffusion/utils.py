@@ -105,9 +105,9 @@ def display_forward_samples(x_val, model, logger, intermediate_every = 200, pref
     model.train()
 
 @torch.no_grad()
-def display_graph_samples(batch_size, cond_val, model, logger, intermediate_every = 200, prefix = "val"):
+def display_graph_samples(batch_size, x_val, cond_val, model, logger, intermediate_every = 200, prefix = "val"):
     model.eval()
-    samples, intermediates = model.reverse_samples(batch_size, cond_val, intermediate_every = intermediate_every)
+    samples, intermediates = model.reverse_samples(batch_size, x_val, cond_val, intermediate_every = intermediate_every)
     intermediate_stats = compute_intermediate_stats(intermediates)
     intermediate_images = [generate_batch_visualizations(inter, cond_val) for inter in intermediates]
     intermediate_images = torch.cat(intermediate_images, dim = -1) # concat along width
@@ -132,7 +132,7 @@ def display_graph_samples(batch_size, cond_val, model, logger, intermediate_ever
 @torch.no_grad()
 def display_forward_graph_samples(x_val, cond_val, model, logger, intermediate_every = 200, prefix = "val"):
     model.eval()
-    intermediates = model.forward_samples(x_val, intermediate_every = intermediate_every)
+    intermediates = model.forward_samples(x_val, cond_val, intermediate_every = intermediate_every)
     intermediate_stats = compute_intermediate_stats(intermediates)
     intermediate_images = [generate_batch_visualizations(inter, cond_val) for inter in intermediates]
     intermediate_images = torch.cat(intermediate_images, dim = -1) # concat along width
@@ -248,7 +248,7 @@ def load_data(dataset_name, augment = False, train_data_limit = None):
     return train_set, val_set, classes
 
 def load_graph_data(dataset_name, augment = False, train_data_limit = None, val_data_limit = None):
-    dataset_sizes = {"placement-v0": (32, 3, 250, 1000), "placement-mini-v0": (4, 1, 30, 1), "placement-mini-v1": (27, 3, 20, 1)}
+    dataset_sizes = {"placement-v0": (32, 3, 250, 1000), "placement-mini-v0": (4, 1, 30, 1), "placement-mini-v1": (180, 20, 20, 1)}
     dataset_path = os.path.join(os.path.dirname(__file__), f'../datasets/graph/{dataset_name}')
     if dataset_name in dataset_sizes:
         TRAIN_SIZE, VAL_SIZE, chip_size, scale = dataset_sizes[dataset_name]
