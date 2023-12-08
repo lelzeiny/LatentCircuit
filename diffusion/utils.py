@@ -11,6 +11,7 @@ import pickle
 import networkx as nx
 from torch_geometric.loader import DataLoader
 from torch_geometric.data import Dataset, download_url
+from shapely.geometry import Polygon
 from torch_geometric.data import Data
 from torch_geometric.utils import from_networkx
 from PIL import Image, ImageDraw
@@ -462,7 +463,6 @@ def visualize(x, attr):
     draw = ImageDraw.Draw(image)
 
     h_step = 1 / len(x)
-
     for i, (pos, shape) in enumerate(zip(x, attr)):
         left = pos[0]
         top = pos[1] + shape[1]
@@ -479,4 +479,97 @@ def visualize(x, attr):
 
     return np.array(image)
 
+
+def visualize_ignore_ports(x, attr, mask):
+    """ 
+    Visualizes the X with node attributes, returning an numpy image
+    x,y are floats normalized to canvas size (from -1 to 1)
+    attr are also normalized to canvas size
+    """
+
+    width, height = 128, 128
+    background_color = "black"
+    image = Image.new("RGB", (width, height), background_color)
+    draw = ImageDraw.Draw(image)
+
+    # h_step = 1 / len(x)
+    # import pdb; pdb.set_trace()
+    for i, (pos, shape) in enumerate(zip(x, attr)):
+        if not mask[i]:
+            left = pos[0]
+            top = pos[1] + shape[1]
+            right = pos[0] + shape[0]
+            bottom = pos[1]
+            inbounds = (left>-1) and (top<1) and (right<1) and (bottom>-1)
+
+            left = (0.5 + left/2) * width
+            right = (0.5 + right/2) * width
+            top = (0.5 - top/2) * height
+            bottom = (0.5 - bottom/2) * height
+            color = (255, 255, 255) if inbounds else (0, 0, 0)
+            draw.rectangle([left, top, right, bottom], fill=color)
+
+    # image.save("debug.png")
+    # import pdb; pdb.set_trace()
+
+    return np.array(image)
+
+def check_legality(x, y, attr, mask, score=True):
+    if not score:
+        legal = 1
+        width, height = 128, 128
+        background_color = "white"
+        image = Image.new("RGB", (width, height), background_color)
+        draw = ImageDraw.Draw(image)
+        h_step = 1 / len(x)
+        for i, (pos1, shape1) in enumerate(zip(x, attr)):
+            for j, (pos2, shape2) in enumerate(zip(x, attr)):
+                if (i != j):
+
+                    # import pdb; pdb.set_trace()
+                    left1 = round(float(pos1[0].numpy()), 3)
+                    top1 = round(float((pos1[1] + shape1[1]).numpy()), 3)
+                    right1 = round(float((pos1[0] + shape1[0]).numpy()), 3)
+                    bottom1 = round(float(pos1[1].numpy()), 3)
+
+                    left1 = (0.5 + left1/2) * width
+                    right1 = (0.5 + right1/2) * width
+                    top1 = (0.5 - top1/2) * height
+                    bottom1 = (0.5 - bottom1/2) * height
+
+                    left2 = round(float(pos2[0].numpy()), 3)
+                    top2 = round(float((pos2[1] + shape2[1]).numpy()), 3)
+                    right2 = round(float((pos2[0] + shape2[0]).numpy()), 3)
+                    bottom2 = round(float(pos2[1].numpy()), 3)
+
+                    left2 = (0.5 + left2/2) * width
+                    right2 = (0.5 + right2/2) * width
+                    top2 = (0.5 - top2/2) * height
+                    bottom2 = (0.5 - bottom2/2) * height
+
+                    rectangle1 = Polygon([(left1, top1), (left1, bottom1), (right1, bottom1), (right1, top1)])
+                    rectangle2 = Polygon([(left2, top2), (left2, bottom2), (right2, bottom2), (right2, top2)])
+                    # import pdb; pdb.set_trace()
+
+                    if rectangle1.intersects(rectangle2) and not rectangle1.touches(rectangle2) and not mask[i] and not mask[j]:
+                        # color = hsv_to_rgb(i * h_step, 1, 0.9)
+                        # coloj = hsv_to_rgb(j * h_step, 1, 0.9)
+                        # image = Image.new("RGB", (width, height), background_color)
+                        # draw = ImageDraw.Draw(image)
+                        # draw.rectangle([left1, top1, right1, bottom1], fill=color)
+                        # draw.rectangle([left2, top2, right2, bottom2], fill=coloj)
+                        # image.save("actual.png")
+                        # visualize(x, attr)
+                        
+                        # print("Collision detected!")
+                        # import pdb; pdb.set_trace()
+                        legal = 0
+        # import pdb; pdb.set_trace()
+        return legal
+    else:
+        placement = visualize_ignore_ports(x, attr, mask)
+        reference = visualize_ignore_ports(y, attr, mask)
+
+        # import pdb;pdb.set_trace()
+        return (np.count_nonzero(reference[:,:,0]) - np.count_nonzero(placement[:,:,0])) / np.count_nonzero(reference[:,:,0])
 
