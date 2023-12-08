@@ -196,6 +196,7 @@ def eval_samples(samples, x_val, cond_val):
             "num_edges": cond_val.edge_index.shape[1],
             "legality_score": 1-check_legality(sample, x, cond_val.x, cond_val.is_ports, score=True),
             "is_legal": check_legality(sample, x, cond_val.x, cond_val.is_ports, score=False),
+            "hpwl": hpwl(sample, cond_val)
         })
     return eval_metrics
 
@@ -561,6 +562,26 @@ def visualize_ignore_ports(x, attr, mask):
     # import pdb; pdb.set_trace()
 
     return np.array(image)
+
+def hpwl(samples, cond_val):
+    # net format
+    # [inst_id, driver_pin_x, driver_pin_y]: list of absolute sink pin locations
+    nets = {}
+
+    for ids, pins in zip(cond_val.edge_index, cond_val.edge_attr):
+        u_id, v_id = ids
+        ux, uy, vx, vy = pins
+
+        # key is the component id and pin position
+        key = str([u_id, ux, uy])
+
+        # final location is component location + pin position
+        u_loc = [comp + pin for comp, pin in zip(samples[u_id], [ux, uy])]
+        v_loc = [comp + pin for comp, pin in zip(samples[v_id], [vx, vy])]
+        nets[key] = nets.get(key, u_loc) + v_loc
+    
+    # half perimeter = (max x - min x) + (max y - min y)
+    hpwl = sum([(max(n[::2]) - min(n[::2])) + (max(n[1::2]) - min(n[1::2])) for n in nets.values()])
 
 def check_legality(x, y, attr, mask, score=True):
     # x is predicted placements (V, 2)

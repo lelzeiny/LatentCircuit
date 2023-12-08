@@ -81,6 +81,7 @@ def main(cfg):
     best_loss = 1e12
     while step < cfg.train_steps:
         x, cond = dataloader.get_batch("train")
+        utils.hpwl(x, cond)
         # x has (B, N, 2); netlist_data is a single graph in tg.Data format
         t = torch.randint(1, cfg.model.max_diffusion_steps + 1, [x.shape[0]], device = device)
         optim.zero_grad()
