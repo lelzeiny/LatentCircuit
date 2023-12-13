@@ -1,6 +1,6 @@
 defaults:
   - _self_
-  - placement-mini-v3
+  - placement-mini-v4
   - model: att-gnn
   - override hydra/hydra_logging: none
   - override hydra/job_logging: stdout

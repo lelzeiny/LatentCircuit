@@ -94,8 +94,8 @@ class AttGNNBlock(nn.Module):
             out_features = hidden_node_features if i<(num_layers-1) else out_node_features
             # self._gconv_layers.append(tgn.GATConv(in_features, out_features, edge_dim=edge_features))
             self._gconv_layers.append(tgn.GCNConv(in_features, hidden_node_features))
-            self._attention_layers.append(AttentionBlock(kwargs["num_heads"], hidden_node_features + 4, kwargs["ff_num_layers"], kwargs["ff_size_factor"], dropout))
-            self._linear_layers.append(nn.Linear(hidden_node_features + 4, out_features))
+            self._attention_layers.append(AttentionBlock(kwargs["num_heads"], hidden_node_features + in_node_features + cond_node_features, kwargs["ff_num_layers"], kwargs["ff_size_factor"], dropout))
+            self._linear_layers.append(nn.Linear(hidden_node_features + in_node_features + cond_node_features, out_features))
         
         self._gconv_layers = nn.ModuleList(self._gconv_layers)
         self._attention_layers = nn.ModuleList(self._attention_layers)
