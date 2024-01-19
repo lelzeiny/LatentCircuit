@@ -285,13 +285,14 @@ def load_data(dataset_name, augment = False, train_data_limit = None):
     return train_set, val_set, classes
 
 def load_graph_data(dataset_name, augment = False, train_data_limit = None, val_data_limit = None):
-    dataset_sizes = {
+    dataset_sizes = { # train size, val size, chip size, scale
         "placement-v0": (32, 3, 250, 1000), 
         "placement-mini-v0": (4, 1, 30, 1), 
         "placement-mini-v1": (180, 20, 20, 1),
         "placement-mini-v2": (420, 41, 20, 1),
         "placement-mini-v3": (3300, 380, 20, 1),
         "placement-mini-v4": (3300, 380, 20, 1),
+        "placement-mini-v5": (11000, 1000, 20, 1),
         "placement-mid-v0": (90, 10, 60, 1),
         "placement-mid-v1": (1500, 100, 60, 1),
     }
@@ -305,11 +306,19 @@ def load_graph_data(dataset_name, augment = False, train_data_limit = None, val_
         assert train_data_limit <= TRAIN_SIZE and val_data_limit <= VAL_SIZE, "data limits invalid"
         train_set = []
         val_set = []
+        missing_data = 0
         for i in range(TRAIN_SIZE + VAL_SIZE):
             if not (i<train_data_limit or (i>=TRAIN_SIZE and i-TRAIN_SIZE<val_data_limit)):
                 continue
             cond_path = os.path.join(dataset_path, f"graph{i}.pickle")
             x_path = os.path.join(dataset_path, f"output{i}.pickle")
+            if not (os.path.exists(cond_path) and os.path.exists(dataset_path)):
+                missing_data += 1
+                if missing_data <= 5:
+                    print(f"WARNING: {i} of dataset not found in {dataset_path}")
+                if missing_data == 5:
+                    print(f"Suppressing missing data warnings...")
+                continue
             cond = load_and_parse_graph(cond_path)
             x = open_pickle(x_path)
             x, cond = preprocess_graph(x, cond, chip_size, scale)
@@ -317,6 +326,8 @@ def load_graph_data(dataset_name, augment = False, train_data_limit = None, val_
                 train_set.append((x, cond))
             else:
                 val_set.append((x, cond))
+        if missing_data > 0:
+            print(f"WARNING: total of {missing_data} samples not found. Continuing...")
     else:
         raise NotImplementedError
     return train_set, val_set

@@ -34,7 +34,7 @@ def main(cfg):
             })
         else:
             raise NotImplementedError
-    
+
     # Preparing model
     model_types = {"cond_diffusion": models.CondDiffusionModel}
     if cfg.implementation == "custom":
@@ -68,7 +68,10 @@ def main(cfg):
         "model": model,
         "optim": optim,
     })
-    checkpointer.load()
+    checkpointer.load(
+        None if (cfg.from_checkpoint == "none" or cfg.from_checkpoint is None) 
+        else os.path.join(cfg.log_dir, cfg.from_checkpoint)
+    )
     
     # Start training
     print(OmegaConf.to_yaml(cfg)) 
