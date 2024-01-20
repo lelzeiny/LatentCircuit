@@ -231,18 +231,18 @@ class CondDiffusionModel(nn.Module):
         intermediates.append(x_t) # append final image
         return intermediates
 
-    def reverse_samples(self, B, x_in, cond, intermediate_every = 0):
+    def reverse_samples(self, B, x_in, cond, intermediate_every = 0, mask_override = None):
         # B: batch size
         # intermediate_every: determines how often intermediate diffusion steps are saved and returned. 0 = no intermediates returned
         if self.modality == "image":
             batch_shape = (B, *self.input_shape)
+            mask_shape = (1, x_in.shape[1], 1, 1)
         else: # graphs
             batch_shape = (B, cond.x.shape[0], self.input_shape[1])
+            mask_shape = (1, x_in.shape[1], 1)
         x = self._epsilon_dist.sample(batch_shape).squeeze(dim = -1) # (B, C, H, W)
-        mask = None
-        if self.mask_key and self.mask_key in cond:
-            mask = self.get_mask(x_in, cond)
-            x = torch.where(mask, x_in, x)
+        mask = mask_override.view(*mask_shape) if mask_override is not None else self.get_mask(x_in, cond)
+        x = torch.where(mask, x_in, x) if mask is not None else x
         intermediates = [x]
         
         for t in range(self.max_diffusion_steps, 0 , -1):
@@ -277,10 +277,13 @@ class CondDiffusionModel(nn.Module):
 
     def get_mask(self, x, cond):
         if self.modality == "graph":
-            mask = cond[self.mask_key]
-            B, V, F = x.shape
-            mask = mask.view(1, V, 1)
-            return mask
+            if self.mask_key and self.mask_key in cond: # TODO raise error if mask key unexpectedly missing
+                mask = cond[self.mask_key]
+                B, V, F = x.shape
+                mask = mask.view(1, V, 1)
+                return mask
+            else:
+                return None
         else:
             raise NotImplementedError
         
