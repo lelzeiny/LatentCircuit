@@ -5,6 +5,7 @@ import numpy as np
 import wandb
 import common
 import os
+import policies
 import pathlib
 import os.path as osp
 from torch.utils.data import Subset
@@ -108,11 +109,25 @@ def display_forward_samples(x_val, model, logger, intermediate_every = 200, pref
     model.train()
 
 @torch.no_grad()
-def display_graph_samples(batch_size, x_val, cond_val, model, logger, intermediate_every = 200, prefix = "val", eval_function = None):
+def display_graph_samples(batch_size, x_val, cond_val, model, logger, intermediate_every = 200, prefix = "val", eval_function = None, policy = "open_loop"):
     model.eval()
-    samples, intermediates = model.reverse_samples(batch_size, x_val, cond_val, intermediate_every = intermediate_every)
-    intermediate_stats = compute_intermediate_stats(intermediates)
-    intermediate_images = [generate_batch_visualizations(inter, cond_val) for inter in intermediates]
+    # samples, intermediates = model.reverse_samples(batch_size, x_val, cond_val, intermediate_every = intermediate_every)
+    masks = None
+    info = {}
+    if policy == "open_loop":
+        samples, intermediates = policies.open_loop(batch_size, model, x_val, cond_val, intermediate_every = intermediate_every)
+    elif policy == "open_loop_multi":
+        samples, intermediates = policies.open_loop_multi(
+            model, x_val, cond_val, num_attempts = 8, score_fn = lambda x: check_legality(x, x_val[0], cond_val.x, cond_val.is_ports, True)
+            )
+    elif policy == "iterative":
+        samples, intermediates, masks, info = policies.iterative(
+            model, x_val, cond_val, score_fn = lambda x, mask: check_legality(x, x_val[0], cond_val.x, mask, True) > 0.99    
+        )
+    if masks is None:
+        intermediate_images = [generate_batch_visualizations(inter, cond_val) for inter in intermediates]
+    else:
+        intermediate_images = [generate_batch_visualizations(inter, cond_val, mask) for inter, mask in zip(intermediates, masks)]
     intermediate_images = torch.cat(intermediate_images, dim = -1) # concat along width
     sample_images = generate_batch_visualizations(samples, cond_val)
     # should be a list of dicts, each dict corresponds to one sample
@@ -128,11 +143,10 @@ def display_graph_samples(batch_size, x_val, cond_val, model, logger, intermedia
             "reverse_examples": {
                 "sample": log_image,
                 "intermediates": log_intermediate,
-                **eval_metrics[idx]
+                **eval_metrics[idx],
+                **info,
             },
         }
-        for stat_name, stat in intermediate_stats.items():
-            logs["reverse_examples"][stat_name] = stat[idx]
         logger.add(logs, prefix = prefix)
     model.train()
     return eval_metrics
@@ -163,12 +177,12 @@ def display_forward_graph_samples(x_val, cond_val, model, logger, intermediate_e
     model.train()
 
 @torch.no_grad()
-def generate_report(num_samples, dataloader, model, logger):
+def generate_report(num_samples, dataloader, model, logger, policy = "iterative"):
     metrics = common.Metrics()
     for _ in range(num_samples):
         x_eval, cond_eval = dataloader.get_batch("val")
         x_eval = x_eval[:1]
-        sample_metrics = display_graph_samples(1, x_eval, cond_eval, model, logger, prefix = "eval", eval_function = eval_samples)
+        sample_metrics = display_graph_samples(1, x_eval, cond_eval, model, logger, prefix = "eval", eval_function = eval_samples, policy = policy)
         for sample_metric in sample_metrics:
             metrics.add(sample_metric)
     # compile metrics and compute stats
@@ -192,13 +206,16 @@ def eval_samples(samples, x_val, cond_val):
     eval_metrics = []
     for idx, (sample, x) in enumerate(zip(samples.cpu().numpy(), x_val.cpu().numpy())):
         V, F = sample.shape
+        sample_hpwl = hpwl(sample, cond_val)
+        original_hpwl = hpwl(x, cond_val)
         eval_metrics.append({
             "num_vertices": V,
             "num_edges": cond_val.edge_index.shape[1],
-            "legality_score": 1-check_legality(sample, x, cond_val.x, cond_val.is_ports, score=True),
+            "legality_score": check_legality(sample, x, cond_val.x, cond_val.is_ports, score=True),
             "is_legal": check_legality(sample, x, cond_val.x, cond_val.is_ports, score=False),
-            "gen_hpwl": hpwl(sample, cond_val),
-            "original_hpwl": hpwl(x, cond_val),
+            "gen_hpwl": sample_hpwl,
+            "original_hpwl": original_hpwl,
+            "hpwl_ratio": sample_hpwl/original_hpwl if original_hpwl!=0 else 0,
         })
     return eval_metrics
 
@@ -341,15 +358,16 @@ def preprocess_graph(x, cond, chip_size, scale = 1000):
     x = 2 * (x / chip_size) - 1
     return x, cond
 
-def generate_batch_visualizations(x, cond):
+def generate_batch_visualizations(x, cond, mask = None):
     # x has shape (B, V, 2)
     # cond is data object, cond.x contains width and heights of nodes
+    # mask is shared across batch dimension, has shape (V)
     B, V, F = x.shape
     x = x.cpu()
     attr = cond.x.cpu() # (V, 2)
     image_list = []
     for i in range(B):
-        img = torch.tensor(visualize(x[i], attr)).movedim(-1, -3) # images should be C, H, W
+        img = torch.tensor(visualize(x[i], attr, mask = cond.is_ports if mask is None else mask)).movedim(-1, -3) # images should be C, H, W
         image_list.append(img)
     return torch.stack(image_list, dim=0)
 
@@ -508,13 +526,12 @@ def hsv_to_rgb(h, s, v):
 
     return int(r * 255), int(g * 255), int(b * 255)
 
-def visualize(x, attr):
+def visualize(x, attr, mask = None):
     """ 
     Visualizes the X with node attributes, returning an numpy image
     x,y are floats normalized to canvas size (from -1 to 1)
     attr are also normalized to canvas size
     """
-
     width, height = 128, 128
     background_color = "white"
     image = Image.new("RGB", (width, height), background_color)
@@ -526,13 +543,14 @@ def visualize(x, attr):
         top = pos[1] + shape[1]
         right = pos[0] + shape[0]
         bottom = pos[1]
-        inbounds = (left>-1) and (top<1) and (right<1) and (bottom>-1)
+        inbounds = (left>=-1) and (top<=1) and (right<=1) and (bottom>=-1)
 
         left = (0.5 + left/2) * width
         right = (0.5 + right/2) * width
         top = (0.5 - top/2) * height
         bottom = (0.5 - bottom/2) * height
-        color = hsv_to_rgb(i * h_step, 1, 0.9 if inbounds else 0.5)
+
+        color = hsv_to_rgb(i * h_step, 1 if (mask is None or not mask[i]) else 0.2, 0.9 if inbounds else 0.5)
         draw.rectangle([left, top, right, bottom], fill=color)
 
     return np.array(image)
@@ -552,7 +570,7 @@ def visualize_ignore_ports(x, attr, mask):
     attr are also normalized to canvas size
     """
 
-    width, height = 128, 128
+    width, height = 1024, 1024
     background_color = "black"
     image = Image.new("RGB", (width, height), background_color)
     draw = ImageDraw.Draw(image)
@@ -565,7 +583,7 @@ def visualize_ignore_ports(x, attr, mask):
             top = pos[1] + shape[1]
             right = pos[0] + shape[0]
             bottom = pos[1]
-            inbounds = (left>-1) and (top<1) and (right<1) and (bottom>-1)
+            inbounds = (left>=-1) and (top<=1) and (right<=1) and (bottom>=-1)
 
             left = (0.5 + left/2) * width
             right = (0.5 + right/2) * width

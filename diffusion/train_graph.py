@@ -125,7 +125,7 @@ def main(cfg):
         if (cfg.eval_every > 0) and (int(step)) % cfg.eval_every == 0:
             print("generating evaluation report")
             t3 = time.time()
-            utils.generate_report(cfg.eval_samples, dataloader, model, logger)
+            utils.generate_report(cfg.eval_samples, dataloader, model, logger, policy = cfg.eval_policy)
             checkpointer.save(os.path.join(log_dir, f"step_{int(step)}.ckpt"))
             logger.write()
             t4 = time.time()
