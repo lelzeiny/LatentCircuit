@@ -77,7 +77,9 @@ class ResidualMLP(nn.Module):
         return x
     
 class FiLM(nn.Module):
-    def __init__(self, cond_dim, input_dim, channel_axis=1):
+    def __init__(self, cond_dim, input_dim, channel_axis=0):
+        # NOTE channel_axis excludes batch dimension
+        # so for images with (C, H, W), channel_axis should be 0
         super().__init__()
         self._mult_proj = nn.Linear(cond_dim, input_dim) 
         self._add_proj = nn.Linear(cond_dim, input_dim)

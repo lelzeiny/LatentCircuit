@@ -13,9 +13,14 @@ def main(cfg):
     OmegaConf.set_struct(cfg, True)
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     log_dir = os.path.join(cfg.log_dir, f"{cfg.task}.{cfg.method}.{cfg.seed}")
+    sample_dir = os.path.join(log_dir, "samples")
     checkpointer = common.Checkpointer(os.path.join(log_dir, "latest.ckpt"))
     try:
         os.makedirs(log_dir)
+    except FileExistsError:
+        pass
+    try:
+        os.makedirs(sample_dir)
     except FileExistsError:
         pass
     print(f"saving checkpoints to: {log_dir}")
@@ -130,6 +135,9 @@ def main(cfg):
             logger.write()
             t4 = time.time()
             print(f"generated report in {t4-t3:.3f} sec")
+
+    # output eval samples
+    utils.save_outputs(val_set, model, cfg.num_output_samples, save_folder=sample_dir, output_number_offset=3300)
 
 if __name__=="__main__":
     main()

@@ -188,6 +188,7 @@ class CondDiffusionModel(nn.Module):
         self._lossfn = nn.MSELoss(reduction = "mean")
 
         # cache some variables:
+        self.device = device
         self._sqrt_alpha_bar = torch.sqrt(self._alpha_bar)
         self._sqrt_alpha_bar_complement = torch.sqrt(1 - self._alpha_bar)
         self._epsilon_dist = tfd.Normal(torch.tensor([0.0], device=device), torch.tensor([1.0], device=device))

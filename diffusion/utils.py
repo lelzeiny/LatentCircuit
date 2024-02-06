@@ -188,6 +188,18 @@ def generate_report(num_samples, dataloader, model, logger, policy = "iterative"
     # compile metrics and compute stats
     logger.add(metrics.result(), prefix = "eval")
 
+@torch.no_grad()
+def save_outputs(val_dataset, model, n, save_folder, output_number_offset=0):
+    for i in range(n):
+        x_in, cond = val_dataset[i]
+        x_in = torch.unsqueeze(x_in, dim=0).to(model.device)
+        sample, _ = model.reverse_samples(1, x_in, cond.to(model.device))
+        sample = sample.squeeze(dim=0).detach().cpu().numpy()
+
+        save_file = os.path.join(save_folder, f"sample{output_number_offset + i}.pkl")
+        with open(save_file, 'wb') as f:
+            pickle.dump(sample, f)
+
 def compute_intermediate_stats(intermediates):
     # input: intermediates is a list, each is (B, C, H, W)
     # outputs: dict of stats, each value is torch tensor with shape (B, T)
