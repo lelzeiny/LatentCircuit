@@ -3,3 +3,4 @@ from .unet import UNet, CondUNet
 from .vit import ViT, AttentionBlock
 from .mlp import MLP, ResidualMLP, ConditionalMLP, FiLM
 from .gnn import ResGNNBlock, ResGNN, GraphUNet, AttGNN
+from .gt import GraphTransformer

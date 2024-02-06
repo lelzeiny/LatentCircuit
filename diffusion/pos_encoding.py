@@ -1,5 +1,6 @@
 import torch
 import numpy as np
+import torch_geometric as tg
 
 class SinusoidPosEncoding():
     def __init__(self, model_dim, num_heads): # give each head the full embedding
@@ -13,11 +14,20 @@ class SinusoidPosEncoding():
         return self._pos_encoding[:pos_idx.shape[0], :]
 
 class NoneEncoding():
-    def __init__(self):
-        pass
+    def __init__(self, shape = [1]):
+        self.shape = shape
 
     def __call__(self, pos_idx):
-        return torch.tensor([0])
+        return torch.zeros(self.shape)
+
+class LaplacianEncoding():
+    def __init__(self, encoding_dim):
+        self.encoding_dim = encoding_dim
+        self.encodings = tg.transforms.AddLaplacianEigenvectorPE(k=self.encoding_dim, is_undirected=True)
+
+    def __call__(self, cond):
+        cond_embedded = self.encodings(cond)
+        return cond_embedded.laplacian_eigenvector_pe
 
 def get_positional_encodings(num_pos, model_dim):
     # returns sin and cos positional encodings, each with model_dim/2 dimensions

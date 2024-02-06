@@ -126,7 +126,8 @@ class CondDiffusionModel(nn.Module):
         "res_gnn": networks.ResGNN, 
         "res_gnn_block": networks.ResGNNBlock, 
         "graph_unet": networks.GraphUNet,
-        "att_gnn": networks.AttGNN,
+        "att_gnn": networks.AttGNN, # Current best
+        "graph_transformer": networks.GraphTransformer
         }
     time_encodings = {"sinusoid": pos_encoding.get_positional_encodings, "none": pos_encoding.get_none_encodings}
     # conditioning vec can be arbitrary
@@ -162,7 +163,7 @@ class CondDiffusionModel(nn.Module):
                     "encoding_dim": encoding_dim,
                     "device": device,
                 })
-        elif backbone == "res_gnn_block" or backbone == "res_gnn" or backbone == "graph_unet" or backbone == "att_gnn":
+        elif backbone in ["res_gnn_block", "res_gnn", "graph_unet", "att_gnn", "graph_transformer"]:
             self.modality = "graph"
             with open_dict(backbone_params):
                 backbone_params.update({
