@@ -314,20 +314,20 @@ def load_data(dataset_name, augment = False, train_data_limit = None):
     return train_set, val_set, classes
 
 def load_graph_data(dataset_name, augment = False, train_data_limit = None, val_data_limit = None):
-    dataset_sizes = { # train size, val size, chip size, scale
-        "placement-v0": (32, 3, 250, 1000), 
-        "placement-mini-v0": (4, 1, 30, 1), 
-        "placement-mini-v1": (180, 20, 20, 1),
-        "placement-mini-v2": (420, 41, 20, 1),
-        "placement-mini-v3": (3300, 380, 20, 1),
-        "placement-mini-v4": (3300, 380, 20, 1),
-        "placement-mini-v5": (11000, 1000, 20, 1),
-        "placement-mid-v0": (90, 10, 60, 1),
-        "placement-mid-v1": (1500, 100, 60, 1),
+    dataset_sizes = { # train size, val size, chip width, chip height, scale
+        "placement-v0": (32, 3, 250, 250, 1000), 
+        "placement-mini-v0": (4, 1, 30, 30, 1), 
+        "placement-mini-v1": (180, 20, 20, 20, 1),
+        "placement-mini-v2": (420, 41, 20, 20, 1),
+        "placement-mini-v3": (3300, 380, 20, 20, 1),
+        "placement-mini-v4": (3300, 380, 20, 20, 1),
+        "placement-mini-v5": (11000, 1000, 20, 20, 1),
+        "placement-mid-v0": (90, 10, 60, 60, 1),
+        "placement-mid-v1": (1500, 100, 60, 60, 1),
     }
     dataset_path = os.path.join(os.path.dirname(__file__), f'../datasets/graph/{dataset_name}')
     if dataset_name in dataset_sizes:
-        TRAIN_SIZE, VAL_SIZE, chip_size, scale = dataset_sizes[dataset_name]
+        TRAIN_SIZE, VAL_SIZE, chip_width, chip_height, scale = dataset_sizes[dataset_name]
         if train_data_limit is None or train_data_limit == "none":
             train_data_limit = TRAIN_SIZE
         if val_data_limit is None or val_data_limit == "none":
@@ -350,7 +350,7 @@ def load_graph_data(dataset_name, augment = False, train_data_limit = None, val_
                 continue
             cond = load_and_parse_graph(cond_path)
             x = open_pickle(x_path)
-            x, cond = preprocess_graph(x, cond, chip_size, scale)
+            x, cond = preprocess_graph(x, cond, (chip_width, chip_height), scale)
             if i<TRAIN_SIZE:
                 train_set.append((x, cond))
             else:
@@ -362,6 +362,8 @@ def load_graph_data(dataset_name, augment = False, train_data_limit = None, val_
     return train_set, val_set
 
 def preprocess_graph(x, cond, chip_size, scale = 1000):
+    # TODO: FIX THIS
+    chip_size = chip_size[0]
     # normalizes input data
     cond.x = 2 * (cond.x / (chip_size))
     x = torch.tensor(x / scale, dtype=torch.float32) # TODO fix this
@@ -636,48 +638,14 @@ def check_legality(x, y, attr, mask, score=True):
     # x is predicted placements (V, 2)
     # y is ground truth placements (V, 2)
     # attr is width height (V, 2)
-    # returns float with legality of placement (0 = bad, 1 = legal)
-    # assert len(x.shape) == 2 and x.shape[1] == 2 and x.shape == y.shape
-    if not score:
-        legal = 1
-        width, height = 128, 128
-        for i, (pos1, shape1) in enumerate(zip(x, attr)):
-            for j, (pos2, shape2) in enumerate(zip(x, attr)):
-                if (i != j):
+    # returns float with legality of placement (1 = bad, 0 = legal)
+    insts = [box(loc[0], loc[1], loc[0] + size[0].item(), loc[1] + size[1].item()) for size, loc, is_ports in zip(cond_val.x, samples, cond_val.is_ports) if not is_ports]
+    chip = box(-0.5, -0.5, 0.5, 0.5)
 
-                    # import pdb; pdb.set_trace()
-                    left1 = round(float(pos1[0]), 3)
-                    top1 = round(float((pos1[1] + shape1[1])), 3)
-                    right1 = round(float((pos1[0] + shape1[0])), 3)
-                    bottom1 = round(float(pos1[1]), 3)
-
-                    left1 = (0.5 + left1/2) * width
-                    right1 = (0.5 + right1/2) * width
-                    top1 = (0.5 - top1/2) * height
-                    bottom1 = (0.5 - bottom1/2) * height
-
-                    left2 = round(float(pos2[0]), 3)
-                    top2 = round(float((pos2[1] + shape2[1])), 3)
-                    right2 = round(float((pos2[0] + shape2[0])), 3)
-                    bottom2 = round(float(pos2[1]), 3)
-
-                    left2 = (0.5 + left2/2) * width
-                    right2 = (0.5 + right2/2) * width
-                    top2 = (0.5 - top2/2) * height
-                    bottom2 = (0.5 - bottom2/2) * height
-
-                    rectangle1 = Polygon([(left1, top1), (left1, bottom1), (right1, bottom1), (right1, top1)])
-                    rectangle2 = Polygon([(left2, top2), (left2, bottom2), (right2, bottom2), (right2, top2)])
-                    # import pdb; pdb.set_trace()
-
-                    if rectangle1.intersects(rectangle2) and not rectangle1.touches(rectangle2) and not mask[i] and not mask[j]:
-                        legal = 0
-        return legal
+    insts_area = round(sum([i.area for i in insts]), 3)
+    insts_overlap = round(intersection(unary_union(insts), chip).area, 3)
+    if score:
+        return insts_overlap/insts_area
     else:
-        placement = visualize_ignore_ports(x, attr, mask)
-        reference = visualize_ignore_ports(y, attr, mask)
-        if np.count_nonzero(reference[:,:,0]) == 0: # divide by 0 iminent
-            import ipdb; ipdb.set_trace()
-            return 0
-        return np.count_nonzero(placement[:,:,0]) / np.count_nonzero(reference[:,:,0])
+        return insts_overlap == insts_area
 
