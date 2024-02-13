@@ -638,12 +638,62 @@ def check_legality(x, y, attr, mask, score=True):
     # x is predicted placements (V, 2)
     # y is ground truth placements (V, 2)
     # attr is width height (V, 2)
+    # returns float with legality of placement (0 = bad, 1 = legal)
+    # assert len(x.shape) == 2 and x.shape[1] == 2 and x.shape == y.shape
+    if not score:
+        legal = 1
+        width, height = 128, 128
+        for i, (pos1, shape1) in enumerate(zip(x, attr)):
+            for j, (pos2, shape2) in enumerate(zip(x, attr)):
+                if (i != j):
+
+                    # import pdb; pdb.set_trace()
+                    left1 = round(float(pos1[0]), 3)
+                    top1 = round(float((pos1[1] + shape1[1])), 3)
+                    right1 = round(float((pos1[0] + shape1[0])), 3)
+                    bottom1 = round(float(pos1[1]), 3)
+
+                    left1 = (0.5 + left1/2) * width
+                    right1 = (0.5 + right1/2) * width
+                    top1 = (0.5 - top1/2) * height
+                    bottom1 = (0.5 - bottom1/2) * height
+
+                    left2 = round(float(pos2[0]), 3)
+                    top2 = round(float((pos2[1] + shape2[1])), 3)
+                    right2 = round(float((pos2[0] + shape2[0])), 3)
+                    bottom2 = round(float(pos2[1]), 3)
+
+                    left2 = (0.5 + left2/2) * width
+                    right2 = (0.5 + right2/2) * width
+                    top2 = (0.5 - top2/2) * height
+                    bottom2 = (0.5 - bottom2/2) * height
+
+                    rectangle1 = Polygon([(left1, top1), (left1, bottom1), (right1, bottom1), (right1, top1)])
+                    rectangle2 = Polygon([(left2, top2), (left2, bottom2), (right2, bottom2), (right2, top2)])
+                    # import pdb; pdb.set_trace()
+
+                    if rectangle1.intersects(rectangle2) and not rectangle1.touches(rectangle2) and not mask[i] and not mask[j]:
+                        legal = 0
+        return legal
+    else:
+        placement = visualize_ignore_ports(x, attr, mask)
+        reference = visualize_ignore_ports(y, attr, mask)
+        if np.count_nonzero(reference[:,:,0]) == 0: # divide by 0 iminent
+            import ipdb; ipdb.set_trace()
+            return 0
+        return np.count_nonzero(placement[:,:,0]) / np.count_nonzero(reference[:,:,0])
+
+def check_legality_new(x, y, attr, mask, score=True):
+    # x is predicted placements (V, 2)
+    # y is ground truth placements (V, 2)
+    # attr is width height (V, 2)
     # returns float with legality of placement (1 = bad, 0 = legal)
-    insts = [box(loc[0], loc[1], loc[0] + size[0].item(), loc[1] + size[1].item()) for size, loc, is_ports in zip(cond_val.x, samples, cond_val.is_ports) if not is_ports]
-    chip = box(-0.5, -0.5, 0.5, 0.5)
+    import shapely # TODO move to top
+    insts = [shapely.box(loc[0], loc[1], loc[0] + size[0].item(), loc[1] + size[1].item()) for size, loc, is_ports in zip(cond_val.x, samples, cond_val.is_ports) if not is_ports]
+    chip = shapely.box(-0.5, -0.5, 0.5, 0.5)
 
     insts_area = round(sum([i.area for i in insts]), 3)
-    insts_overlap = round(intersection(unary_union(insts), chip).area, 3)
+    insts_overlap = round(shapely.intersection(shapely.unary_union(insts), chip).area, 3)
     if score:
         return insts_overlap/insts_area
     else:
