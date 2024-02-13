@@ -23,6 +23,7 @@ class GraphTransformer(nn.Module):
             extra_node_features = 2,
             dropout=0.0, 
             device="cpu",
+            residual = False,
             **kwargs,
             ):
         super().__init__()
@@ -33,6 +34,9 @@ class GraphTransformer(nn.Module):
         self.model_dim = model_dim
         self.pos_encoding_dim = pos_encoding_dim
         self.extra_node_features = extra_node_features
+        self.residual = residual
+        if self.residual:
+            assert self.in_node_features == self.out_node_features, "in and out features must be equal for residual network"
 
         # network layers
         if pos_encoding_type == "laplacian":
@@ -61,6 +65,7 @@ class GraphTransformer(nn.Module):
         # x: (B, V, C)
         # t_embed: (B, d_model)
         B, V, C = x.shape
+        x0 = x
         t_embed = self._t_in_layer(t_embed).unsqueeze(dim=1)
         pos_embed = self._pos_encoding(cond).to(x.device).unsqueeze(dim=0)
         pos_embed = torch.broadcast_to(pos_embed, (B, V, self.pos_encoding_dim)) # (1, V, d_enc)
@@ -72,4 +77,6 @@ class GraphTransformer(nn.Module):
         x = self._attn(x)[:, 1:, :]
         x = self._layernorm(x)
         x = self._out_layer(x)
+        if self.residual:
+            x = x + x0
         return x

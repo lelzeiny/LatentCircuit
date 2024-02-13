@@ -8,4 +8,5 @@ backbone_params:
   ff_size_factor: 4
   dropout: 0.0
   edge_features: 4
+  residual: False
   
