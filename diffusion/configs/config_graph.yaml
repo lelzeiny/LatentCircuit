@@ -1,7 +1,7 @@
 defaults:
   - _self_
-  - placement-mini-v5
-  - model: graph-transformer
+  - task@_here_: placement-mini-v5
+  - model: att-gnn #graph-transformer
   - override hydra/hydra_logging: none
   - override hydra/job_logging: stdout
 
