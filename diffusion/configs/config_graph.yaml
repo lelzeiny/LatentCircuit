@@ -2,6 +2,7 @@ defaults:
   - _self_
   - task@_here_: placement-mini-v5
   - model: att-gnn #graph-transformer
+  - model/conv-layer@model.backbone_params: transformer
   - override hydra/hydra_logging: none
   - override hydra/job_logging: stdout
 

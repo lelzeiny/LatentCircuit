@@ -1,0 +1,4 @@
+conv_params:
+  layer_type: gated
+  heads: 4
+  

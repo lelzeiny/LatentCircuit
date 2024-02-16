@@ -23,10 +23,9 @@ class MLP(nn.Module):
         self._ln = nn.LayerNorm(in_size)
     
     def __call__(self, x):
-        # x is (B, ...)
-        B = x.shape[0]
-        x = x.view(B, -1)
-        output = self._nn(self._ln(x)) if self.layernorm else self._nn(x) # TODO add dropout
+        # x is (..., D)
+        in_shape = x.shape
+        output = self._nn(self._ln(x.view(-1, in_shape[-1]).view(*in_shape))) if self.layernorm else self._nn(x)
         return x + output if self.skip else output
 
 class ConditionalMLP(nn.Module):

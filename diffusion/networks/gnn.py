@@ -3,10 +3,45 @@ import torch_geometric as tg
 import torch_geometric.nn as tgn
 import torch.nn as nn
 import torch.functional as F
-from .mlp import FiLM
+from .mlp import FiLM, MLP
 from .vit import AttentionBlock
+import networks.layers as layers
+
+def get_conv_layer(layer_type, in_channels, out_channels, **layer_kwargs):
+    layer_fns = {
+        "gcn": tgn.GCNConv,
+        "sage": tgn.SAGEConv,
+        "gin": tgn.GINConv,
+        "transformer": layers.TransformerConv,
+        "gated": layers.GatedGraphConv,
+        # "gine": tgn.GINEConv,
+    }
+    if layer_type == "gin":
+        layer_params = {
+            "nn": MLP(
+                num_layers = layer_kwargs.get("nn_num_layer", 2), 
+                model_width = layer_kwargs.get("nn_hidden_width", out_channels),
+                in_size = in_channels, 
+                out_size = out_channels,
+            ),
+            **layer_kwargs
+        }
+    elif layer_type == "gated":
+        assert in_channels <= out_channels
+        layer_params = {
+            "out_channels": out_channels,
+            **layer_kwargs
+        }
+    else:
+        layer_params = {
+            "in_channels": in_channels,
+            "out_channels": out_channels,
+            **layer_kwargs
+        }
+    return layer_fns[layer_type](**layer_params)
 
 class GConvLayer(nn.Module):
+    # TODO allow configuration of conv layer type
     def __init__(self, in_node_features, out_node_features):
         super().__init__()
         self._layer = tgn.GCNConv(in_node_features, out_node_features)
@@ -17,7 +52,7 @@ class GConvLayer(nn.Module):
         return self._layer(x, edge_index), data, t_embed
 
 class ResGNNBlock(nn.Module):
-    def __init__(self, in_node_features, out_node_features, hidden_node_features, cond_node_features, edge_features, num_layers, encoding_dim, residual=True, norm=True, dropout=0.0, device="cpu", **kwargs):
+    def __init__(self, in_node_features, out_node_features, hidden_node_features, cond_node_features, edge_features, num_layers, encoding_dim, residual=True, norm=True, dropout=0.0, conv_params={"layer_type": "gcn"}, device="cpu", **kwargs):
         super().__init__()
         self.in_node_features = in_node_features
         self.out_node_features = out_node_features
@@ -34,7 +69,12 @@ class ResGNNBlock(nn.Module):
             in_features = in_node_features + cond_node_features if i==0 else hidden_node_features
             out_features = hidden_node_features if i<(num_layers-1) else out_node_features
             # self._gconv_layers.append(tgn.GATConv(in_features, out_features, edge_dim=edge_features))
-            self._gconv_layers.append(tgn.GCNConv(in_features, hidden_node_features))
+            # self._gconv_layers.append(tgn.GCNConv(in_features, hidden_node_features))
+            self._gconv_layers.append(get_conv_layer(
+                in_channels=in_features, 
+                out_channels=hidden_node_features,
+                **conv_params
+                ))
             self._linear_layers.append(nn.Linear(hidden_node_features, out_features))
         
         self._gconv_layers = nn.ModuleList(self._gconv_layers)
@@ -75,7 +115,7 @@ class ResGNNBlock(nn.Module):
         return x, data, t # so we can use Sequential
 
 class AttGNNBlock(nn.Module):
-    def __init__(self, in_node_features, out_node_features, hidden_node_features, cond_node_features, edge_features, num_layers, encoding_dim, residual=True, norm=True, dropout=0.0, device="cpu", **kwargs):
+    def __init__(self, in_node_features, out_node_features, hidden_node_features, cond_node_features, edge_features, num_layers, encoding_dim, residual=True, norm=True, dropout=0.0, conv_params={"layer_type": "gcn"}, device="cpu", **kwargs):
         super().__init__()
         self.in_node_features = in_node_features
         self.out_node_features = out_node_features
@@ -93,7 +133,12 @@ class AttGNNBlock(nn.Module):
             in_features = in_node_features + cond_node_features if i==0 else hidden_node_features
             out_features = hidden_node_features if i<(num_layers-1) else out_node_features
             # self._gconv_layers.append(tgn.GATConv(in_features, out_features, edge_dim=edge_features))
-            self._gconv_layers.append(tgn.GCNConv(in_features, hidden_node_features))
+            # self._gconv_layers.append(tgn.GCNConv(in_features, hidden_node_features))
+            self._gconv_layers.append(get_conv_layer(
+                in_channels=in_features, 
+                out_channels=hidden_node_features,
+                **conv_params
+                ))
             self._attention_layers.append(AttentionBlock(kwargs["num_heads"], hidden_node_features + in_node_features + cond_node_features, kwargs["ff_num_layers"], kwargs["ff_size_factor"], dropout))
             self._linear_layers.append(nn.Linear(hidden_node_features + in_node_features + cond_node_features, out_features))
         
@@ -191,7 +236,8 @@ class AttGNN(nn.Module):
             edge_features, 
             layers_per_block, 
             encoding_dim,
-            dropout=0.0, 
+            conv_params,
+            dropout=0.0,
             device="cpu",
             **kwargs, # should contain attention attention parameters
             ):
@@ -215,6 +261,7 @@ class AttGNN(nn.Module):
                 edge_features=edge_features,
                 num_layers=layers_per_block,
                 encoding_dim=encoding_dim,
+                conv_params=conv_params,
                 residual=True,
                 norm=True,
                 dropout=dropout,
@@ -228,6 +275,7 @@ class AttGNN(nn.Module):
                 edge_features=edge_features,
                 num_layers=1,
                 encoding_dim=encoding_dim,
+                conv_params=conv_params,
                 residual=True,
                 norm=True,
                 dropout=dropout,
