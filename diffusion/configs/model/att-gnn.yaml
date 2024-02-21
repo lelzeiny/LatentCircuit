@@ -2,6 +2,7 @@ backbone: att_gnn
 backbone_params:
   edge_features: 4
   cond_node_features: 2
+  attention_extra_features: 2
   hidden_size: 2 # 8
   hidden_node_features: [256, 256] #[256, 256] [64, 128, 128, 64]
   attention_node_features: [32, 32] #[32, 32]

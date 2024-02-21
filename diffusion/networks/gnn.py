@@ -68,8 +68,6 @@ class ResGNNBlock(nn.Module):
         for i in range(num_layers):
             in_features = in_node_features + cond_node_features if i==0 else hidden_node_features
             out_features = hidden_node_features if i<(num_layers-1) else out_node_features
-            # self._gconv_layers.append(tgn.GATConv(in_features, out_features, edge_dim=edge_features))
-            # self._gconv_layers.append(tgn.GCNConv(in_features, hidden_node_features))
             self._gconv_layers.append(get_conv_layer(
                 in_channels=in_features, 
                 out_channels=hidden_node_features,
@@ -87,8 +85,7 @@ class ResGNNBlock(nn.Module):
         self._nonlinear = nn.ReLU()
         self._dropout = nn.Dropout(p = dropout)
 
-    def forward(self, x_in): # data is conditioning info
-        x, data, t = x_in
+    def forward(self, x, data, t): # data is conditioning info
         B, V, F = x.shape
         cond_x, edge_index, edge_attr = data.x, data.edge_index, data.edge_attr
         cond_x = cond_x.view(1, *cond_x.shape).expand(B, -1, -1)
@@ -112,14 +109,29 @@ class ResGNNBlock(nn.Module):
         x = self._linear_layers[-1](x)
         if self.residual:
             x = x + x_skip 
-        return x, data, t # so we can use Sequential
+        return x 
 
 class AttGNNBlock(nn.Module):
-    def __init__(self, in_node_features, out_node_features, hidden_node_features, cond_node_features, edge_features, num_layers, encoding_dim, residual=True, norm=True, dropout=0.0, conv_params={"layer_type": "gcn"}, device="cpu", **kwargs):
+    def __init__(self, 
+                 in_node_features, 
+                 out_node_features, 
+                 hidden_node_features, 
+                 cond_node_features,
+                 attention_extra_features, 
+                 edge_features, 
+                 num_layers, 
+                 encoding_dim, 
+                 residual=True, 
+                 norm=True, 
+                 dropout=0.0, 
+                 conv_params={"layer_type": "gcn"}, 
+                 device="cpu", 
+                 **kwargs):
         super().__init__()
         self.in_node_features = in_node_features
         self.out_node_features = out_node_features
         self.hidden_node_features = hidden_node_features
+        self.attention_extra_features = attention_extra_features
         self.edge_features = edge_features
         self.residual = residual
         if residual:
@@ -132,15 +144,14 @@ class AttGNNBlock(nn.Module):
         for i in range(num_layers):
             in_features = in_node_features + cond_node_features if i==0 else hidden_node_features
             out_features = hidden_node_features if i<(num_layers-1) else out_node_features
-            # self._gconv_layers.append(tgn.GATConv(in_features, out_features, edge_dim=edge_features))
-            # self._gconv_layers.append(tgn.GCNConv(in_features, hidden_node_features))
             self._gconv_layers.append(get_conv_layer(
                 in_channels=in_features, 
                 out_channels=hidden_node_features,
                 **conv_params
                 ))
-            self._attention_layers.append(AttentionBlock(kwargs["num_heads"], hidden_node_features + in_node_features + cond_node_features, kwargs["ff_num_layers"], kwargs["ff_size_factor"], dropout))
-            self._linear_layers.append(nn.Linear(hidden_node_features + in_node_features + cond_node_features, out_features))
+            att_model_size = hidden_node_features + cond_node_features + attention_extra_features
+            self._attention_layers.append(AttentionBlock(kwargs["num_heads"], att_model_size, kwargs["ff_num_layers"], kwargs["ff_size_factor"], dropout))
+            self._linear_layers.append(nn.Linear(att_model_size, out_features))
         
         self._gconv_layers = nn.ModuleList(self._gconv_layers)
         self._attention_layers = nn.ModuleList(self._attention_layers)
@@ -153,15 +164,15 @@ class AttGNNBlock(nn.Module):
         self._nonlinear = nn.ReLU()
         self._dropout = nn.Dropout(p = dropout)
 
-    def forward(self, x_in): # data is conditioning info
-        x, data, t = x_in
+    def forward(self, x, data, t, att_extra_input = None): # data is conditioning info
         B, V, F = x.shape
+        assert att_extra_input is None or att_extra_input.shape[-1] == self.attention_extra_features, "extra attention features must have right shape"
         cond_x, edge_index, edge_attr = data.x, data.edge_index, data.edge_attr
         cond_x = cond_x.view(1, *cond_x.shape).expand(B, -1, -1)
         # TODO replace with GATConv or better, and make use of edge attributes
         x_skip = x
-        x_att_features = torch.cat((x, cond_x), dim=-1)
-        x = x_att_features
+        x = torch.cat((x, cond_x), dim=-1)
+        x_att_features = torch.cat((cond_x, att_extra_input), dim=-1) if att_extra_input is not None else cond_x
         for i, (linear, conv, attention) in enumerate(zip(self._linear_layers[:-1], self._gconv_layers[:-1], self._attention_layers[:-1])):
             if self._norm is not None and x.shape[-1] == self.hidden_node_features:
                 x = torch.movedim(x, -1, 1)
@@ -183,7 +194,7 @@ class AttGNNBlock(nn.Module):
         x = self._linear_layers[-1](x)
         if self.residual:
             x = x + x_skip 
-        return x, data, t # so we can use Sequential
+        return x
 
 class ResGNN(nn.Module):
     blocks = {"res": ResGNNBlock, "att": AttGNNBlock}
@@ -233,6 +244,7 @@ class AttGNN(nn.Module):
             hidden_node_features,
             attention_node_features, 
             cond_node_features, 
+            attention_extra_features,
             edge_features, 
             layers_per_block, 
             encoding_dim,
@@ -246,14 +258,15 @@ class AttGNN(nn.Module):
         self.out_node_features = out_node_features
         self.hidden_node_features = hidden_node_features
         self.attention_node_features = attention_node_features
+        self.attention_extra_features = attention_extra_features
         self.edge_features = edge_features
 
-        self._gnn_blocks = []
+        gnn_blocks = []
         self.use_enc = not (hidden_size == in_node_features == out_node_features)
         if self.use_enc:
-            self._gnn_blocks.append(GConvLayer(in_node_features, hidden_size))
+            gnn_blocks.append(GConvLayer(in_node_features, hidden_size))
         for i, (hidden_node_size, attention_node_size) in enumerate(zip(hidden_node_features, attention_node_features)):
-            self._gnn_blocks.append(ResGNNBlock(
+            gnn_blocks.append(ResGNNBlock(
                 in_node_features=hidden_size, # note that this means after each block there is a large bottleneck
                 out_node_features=hidden_size,
                 hidden_node_features=hidden_node_size,
@@ -267,11 +280,12 @@ class AttGNN(nn.Module):
                 dropout=dropout,
                 device=device,
             ))
-            self._gnn_blocks.append(AttGNNBlock( # TODO feed in original x, y coordinates
+            gnn_blocks.append(AttGNNBlock(
                 in_node_features=hidden_size, # note that this means after each block there is a large bottleneck
                 out_node_features=hidden_size,
                 hidden_node_features=attention_node_size,
                 cond_node_features=cond_node_features,
+                attention_extra_features=attention_extra_features,
                 edge_features=edge_features,
                 num_layers=1,
                 encoding_dim=encoding_dim,
@@ -283,13 +297,17 @@ class AttGNN(nn.Module):
                 **kwargs,
             ))
         if self.use_enc:
-            self._gnn_blocks.append(GConvLayer(hidden_size, out_node_features))
-        self._network = nn.Sequential(*self._gnn_blocks)
+            gnn_blocks.append(GConvLayer(hidden_size, out_node_features))
+        self._gnn_blocks = nn.ModuleList(gnn_blocks)
         print("ENCODER USED IN ATTGNN", self.use_enc)
 
     def forward(self, x, cond, t_embed):
         x_skip = x
-        x,_,_ = self._network((x, cond, t_embed))
+        for block in self._gnn_blocks:
+            if isinstance(block, AttGNNBlock): # include attention conditioning
+                x = block(x, cond, t_embed, att_extra_input=x_skip)
+            else:
+                x = block(x, cond, t_embed)
         return (x + x_skip if self.use_enc else x)
 
 class GraphUNet(nn.Module):
