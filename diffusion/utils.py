@@ -685,12 +685,14 @@ def check_legality(x, y, attr, mask, score=True):
 
 def check_legality_new(x, y, attr, mask, score=True):
     # x is predicted placements (V, 2)
-    # y is ground truth placements (V, 2)
+    # y is ground truth placements (V, 2) -- not used
     # attr is width height (V, 2)
     # returns float with legality of placement (1 = bad, 0 = legal)
     import shapely # TODO move to top
-    insts = [shapely.box(loc[0], loc[1], loc[0] + size[0].item(), loc[1] + size[1].item()) for size, loc, is_ports in zip(cond_val.x, samples, cond_val.is_ports) if not is_ports]
-    chip = shapely.box(-0.5, -0.5, 0.5, 0.5)
+    insts = [shapely.box(loc[0], loc[1], loc[0] + size[0], loc[1] + size[1]) 
+                for size, loc, is_ports in zip(attr, x, mask)
+                if not is_ports]
+    chip = shapely.box(-1, -1, 1, 1)
 
     insts_area = round(sum([i.area for i in insts]), 3)
     insts_overlap = round(shapely.intersection(shapely.unary_union(insts), chip).area, 3)
