@@ -14,6 +14,7 @@ def get_conv_layer(layer_type, in_channels, out_channels, **layer_kwargs):
         "gin": tgn.GINConv,
         "transformer": layers.TransformerConv,
         "gated": layers.GatedGraphConv,
+        "gat": tgn.GATv2Conv,
         # "gine": tgn.GINEConv,
     }
     if layer_type == "gin":
@@ -32,13 +33,28 @@ def get_conv_layer(layer_type, in_channels, out_channels, **layer_kwargs):
             "out_channels": out_channels,
             **layer_kwargs
         }
+    elif layer_type == "gat":
+        if layer_kwargs.get("concat", True):
+            assert (out_channels % layer_kwargs.get("heads", 1) == 0), "out channels must be divisible by number of heads in GAT"
+            channel_divisor = layer_kwargs.get("heads", 1)
+        else:
+            channel_divisor = 1
+        layer_params = {
+            "in_channels": in_channels,
+            "out_channels": out_channels // channel_divisor,
+            **layer_kwargs
+        }
     else:
         layer_params = {
             "in_channels": in_channels,
             "out_channels": out_channels,
             **layer_kwargs
         }
-    return layer_fns[layer_type](**layer_params)
+    layer = layer_fns[layer_type](**layer_params)
+    if layer_type == "gat":
+        # use batch wrapper since tgn does not support batched dim
+        layer = layers.BatchWrapper(layer)
+    return layer
 
 class GConvLayer(nn.Module):
     # TODO allow configuration of conv layer type
@@ -305,7 +321,7 @@ class AttGNN(nn.Module):
         x_skip = x
         for block in self._gnn_blocks:
             if isinstance(block, AttGNNBlock): # include attention conditioning
-                x = block(x, cond, t_embed, att_extra_input=x_skip)
+                x = block(x, cond, t_embed, att_extra_input=x) # x_skip
             else:
                 x = block(x, cond, t_embed)
         return (x + x_skip if self.use_enc else x)

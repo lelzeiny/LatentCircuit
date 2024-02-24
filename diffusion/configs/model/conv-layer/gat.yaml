@@ -1,0 +1,5 @@
+conv_params:
+  layer_type: gat
+  heads: 4 # TODO support multi-head
+  concat: True
+  edge_dim: null
