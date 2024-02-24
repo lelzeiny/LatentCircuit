@@ -15,7 +15,7 @@ class BatchWrapper(nn.Module):
         B, V, F = x.shape
         _, E = edge_index.shape
         
-        x_unbatched = x.view(B * V, F)
+        x_unbatched = x.reshape(B * V, F)
 
         edge_attr_unbatched = edge_attr.view(B * E, -1) if edge_attr is not None else None
         
@@ -25,7 +25,7 @@ class BatchWrapper(nn.Module):
         edge_index_unbatched = edge_index_unbatched.reshape(B * E, 2).movedim(0, -1)
         
         output_unbatched = self.net(x_unbatched, edge_index_unbatched, edge_attr=edge_attr_unbatched, **kwargs) # (B*V, F)
-        
+
         # reshape output
         output = output_unbatched.view(B, V, -1)
         return output
