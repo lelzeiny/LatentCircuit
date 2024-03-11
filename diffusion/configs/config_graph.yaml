@@ -24,6 +24,7 @@ logger:
 implementation: custom
 model:
   mask_key: is_ports
+  use_mask_as_input: False
   max_diffusion_steps: 1000
   noise_schedule: linear
   encoding_type: sinusoid

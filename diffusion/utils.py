@@ -366,6 +366,7 @@ def preprocess_graph(x, cond, chip_size, scale = 1000):
     chip_size = chip_size[0]
     # normalizes input data
     cond.x = 2 * (cond.x / (chip_size))
+    cond.edge_attr = cond.edge_attr.float()
     x = torch.tensor(x / scale, dtype=torch.float32) # TODO fix this
     x = 2 * (x / chip_size) - 1
     return x, cond

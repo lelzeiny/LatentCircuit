@@ -132,7 +132,20 @@ class CondDiffusionModel(nn.Module):
     time_encodings = {"sinusoid": pos_encoding.get_positional_encodings, "none": pos_encoding.get_none_encodings}
     # conditioning vec can be arbitrary
     # here we use a torch_geometry object
-    def __init__(self, backbone, backbone_params, input_shape, encoding_type, encoding_dim, max_diffusion_steps = 100, noise_schedule = "linear", mask_key = None, device = "cpu", **kwargs):
+    def __init__(
+            self, 
+            backbone, 
+            backbone_params, 
+            input_shape, 
+            encoding_type, 
+            encoding_dim, 
+            max_diffusion_steps = 100, 
+            noise_schedule = "linear", 
+            mask_key = None, 
+            use_mask_as_input = False, 
+            device = "cpu", 
+            **kwargs
+            ):
         super().__init__()
         if backbone == "mlp" or backbone == "res_mlp":
             self.modality = "image"
@@ -171,6 +184,7 @@ class CondDiffusionModel(nn.Module):
                     "out_node_features": input_shape[1],
                     "encoding_dim": encoding_dim,
                     "device": device,
+                    "mask_key": mask_key if use_mask_as_input else None,
                 })
         if encoding_dim > 0:
             self.encoding = CondDiffusionModel.time_encodings[encoding_type](max_diffusion_steps, encoding_dim).to(device)
