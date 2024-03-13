@@ -135,6 +135,8 @@ def main(cfg):
             logger.write()
             t4 = time.time()
             print(f"generated report in {t4-t3:.3f} sec")
+            checkpointer.save(os.path.join(log_dir, f"eval_{int(step)}.ckpt"))
+            print(f"saving model at step {int(step)}")
 
     # output eval samples
     utils.save_outputs(val_set, model, cfg.num_output_samples, save_folder=sample_dir, output_number_offset=3300)

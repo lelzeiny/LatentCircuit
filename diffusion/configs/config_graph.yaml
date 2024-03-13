@@ -36,8 +36,8 @@ model:
 batch_size: 64
 val_batch_size: 64
 train_steps: 5000000
-print_every: 1000
-eval_every: 50000
+print_every: 5000
+eval_every: 200000
 eval_samples: 32
 eval_policy: open_loop
 display_examples: 1
