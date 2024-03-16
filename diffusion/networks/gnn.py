@@ -385,12 +385,14 @@ class AttGNN(nn.Module):
         self._gnn_blocks = nn.ModuleList(gnn_blocks)
         print("ENCODER USED IN ATTGNN", self.use_enc)
 
-    def forward(self, x, cond, t_embed):
+    def forward(self, x, cond, t_embed, c_embed = None):
         x_skip = x
         for block in self._gnn_blocks:
             if isinstance(block, AttGNNBlock): # include attention conditioning
                 att_input = x_skip if self.dir_att_input else x
                 x = block(x, cond, t_embed, att_extra_input=att_input)
+                if c_embed != None:
+                    pass
             else:
                 x = block(x, cond, t_embed)
         return (x + x_skip if self.use_enc else x)

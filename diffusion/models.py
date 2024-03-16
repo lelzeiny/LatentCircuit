@@ -144,6 +144,7 @@ class CondDiffusionModel(nn.Module):
             mask_key = None, 
             use_mask_as_input = False, 
             device = "cpu", 
+            w = 0.5,
             **kwargs
             ):
         super().__init__()
@@ -208,6 +209,7 @@ class CondDiffusionModel(nn.Module):
         self._sqrt_alpha_bar_complement = torch.sqrt(1 - self._alpha_bar)
         self._epsilon_dist = tfd.Normal(torch.tensor([0.0], device=device), torch.tensor([1.0], device=device))
         self._sigma = torch.sqrt(self._beta)
+        self.w = w
 
     def __call__(self, x, cond, t):
         # input: x is (B, C, H, W) for images, t is (B), cond is (1, x)
