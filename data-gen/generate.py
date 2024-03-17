@@ -1,4 +1,5 @@
 import utils
+import algorithms
 import torch
 import hydra
 from omegaconf import OmegaConf, open_dict
@@ -19,6 +20,9 @@ def main(cfg):
         pass
     print(f"saving outputs to: {out_dir}")
     torch.manual_seed(cfg.seed)
+
+    # Generator
+    circuit_gen = algorithms.V1(**cfg.gen_params)
 
     # Prepare logger
     outputs = [
@@ -45,11 +49,24 @@ def main(cfg):
 
     while step < cfg.num_samples:
         # generate data
-
+        sample = circuit_gen.sample()
+        samples.append(sample)
         # append to samples
         step.increment()
-
-    # save outputs
+        # Generate number of terminals for each instance
+        if (int(step)) % cfg.print_every == 0:
+            t_2 = time.time()
+            # save batch of outputs
+            
+            samples = []
+            logger.add({
+                "time_elapsed": t_2-t_0, 
+                "ms_per_step": 1000*(t_2-t_1)/cfg.print_every
+                })
+            logger.write()
+            checkpointer.save()
+            t_1 = t_2
+            
 
 if __name__=="__main__":
     main()

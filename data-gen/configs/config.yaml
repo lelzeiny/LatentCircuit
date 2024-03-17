@@ -3,10 +3,24 @@ defaults:
   - override hydra/hydra_logging: none
   - override hydra/job_logging: stdout
 
-dataset_name: debug_att_gnn
+dataset_name: debug_gen
 seed: 61
 num_samples: 100
 out_dir: data-gen/outputs
+print_every: 1000
+
+gen_params:
+  max_instance: 100
+  aspect_ratio_dist:
+    dist_type: uniform
+    dist_params:
+      min: 0.25
+      max: 4.0
+  instance_size_dist:
+    dist_type: uniform
+    dist_params:
+      min: 0.02
+      max: 0.2
 
 logger:
   filter: '.*'
