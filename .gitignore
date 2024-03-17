@@ -5,3 +5,4 @@ datasets/
 wandb/
 logs/
 venv/
+data-gen/outputs/
