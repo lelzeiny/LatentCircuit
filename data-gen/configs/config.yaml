@@ -10,23 +10,34 @@ out_dir: data-gen/outputs
 print_every: 1000
 
 gen_params:
-  max_instance: 50
+  max_instance: 100
   stop_density: 0.8
+  max_attempts_per_instance: 20
   aspect_ratio_dist:
     dist_type: uniform
     dist_params:
       low: 0.25
-      high: 4.0
+      high: 1.0
   instance_size_dist:
     dist_type: uniform
     dist_params:
       low: 0.02
-      high: 0.2
+      high: 0.4
   num_terminals_dist:
     dist_type: uniform
     dist_params:
       low: 1
       high: 16
+  edge_dist:
+    dist_type: cond_exp_bernoulli
+    dist_params:
+      scale: 0.3
+      prob_clip: 0.5
+      prob_multiplier: 0.1
+  source_terminal_dist:
+    dist_type: bernoulli
+    dist_params:
+      probs: 0.3
 
 logger:
   filter: '.*'
