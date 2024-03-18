@@ -5,24 +5,25 @@ defaults:
 
 dataset_name: debug_gen
 seed: 61
-num_samples: 100
+num_samples: 20000
 out_dir: data-gen/outputs
-print_every: 10
+print_every: 100
 
 gen_params:
-  max_instance: 100
-  stop_density: 0.8
-  max_attempts_per_instance: 20
+  max_instance: 150
+  stop_density: 0.75
+  max_attempts_per_instance: 10
   aspect_ratio_dist:
     dist_type: uniform
     dist_params:
       low: 0.25
       high: 1.0
   instance_size_dist:
-    dist_type: uniform
+    dist_type: clipped_exp
     dist_params:
-      low: 0.02
-      high: 0.4
+      scale: 0.1
+      clip_min: 0.02
+      clip_max: 1.0
   num_terminals_dist:
     dist_type: uniform
     dist_params:

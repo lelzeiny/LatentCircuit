@@ -10,6 +10,8 @@ def get_distribution(dist_type, dist_params):
         return ConditionalPoisson(**dist_params)
     elif dist_type == "cond_exp_bernoulli":
         return ConditionalExpBernoulli(**dist_params)
+    elif dist_type == "clipped_exp":
+        return ClippedExp(**dist_params)
     
 class ConditionalPoisson:
     def __init__(self, scale):
@@ -34,3 +36,13 @@ class ConditionalExpBernoulli:
         distribution = dist.Bernoulli(probs=prob)
         sample = distribution.sample(sample_shape)
         return sample
+    
+class ClippedExp:
+    def __init__(self, scale, clip_min, clip_max):
+        self.dist = dist.Exponential(rate = 1/scale)
+        self.clip_min = clip_min
+        self.clip_max = clip_max
+    
+    def sample(self, sample_shape = torch.Size([])):
+        sample = self.dist.sample(sample_shape)
+        return torch.clip(sample, self.clip_min, self.clip_max)

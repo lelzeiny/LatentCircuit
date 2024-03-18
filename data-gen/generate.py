@@ -11,7 +11,7 @@ import time
 def main(cfg):
     # Preliminaries
     OmegaConf.set_struct(cfg, True)
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    device = 'cpu' #'cuda' if torch.cuda.is_available() else 'cpu'
     out_dir = os.path.join(cfg.out_dir, f"{cfg.dataset_name}.{cfg.seed}")
     checkpointer = common.Checkpointer(os.path.join(out_dir, "latest.ckpt"))
     try:
@@ -39,6 +39,7 @@ def main(cfg):
     checkpointer.register({
         "step": step,
     })
+    checkpointer.load()
 
     # Start training
     print(OmegaConf.to_yaml(cfg))

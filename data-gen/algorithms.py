@@ -27,8 +27,8 @@ class V1:
         self.source_terminal_dist = source_terminal_dist
 
     def sample(self):
-        # Generate instance sizes TODO use clipped poisson for sizes
         # TODO maybe do something about instances not connected to anything
+        # Generate instance sizes
         aspect_ratio = get_distribution(**self.aspect_ratio_dist).sample((self.max_instance,))
         long_size = get_distribution(**self.instance_size_dist).sample((self.max_instance,))
         short_size = aspect_ratio * long_size
@@ -165,8 +165,8 @@ class V1:
         edge_attr_reverse = torch.concat((edge_attr_sink, edge_attr_source), dim=-1)
         
         # create undirected edge index and attr
-        edge_index = torch.concat((edge_index_forward, edge_index_reverse), dim=0)
-        edge_attr = torch.concat((edge_attr_forward, edge_attr_reverse), dim=0)
+        edge_index = torch.concat((edge_index_forward, edge_index_reverse), dim=0).T # (2, E)
+        edge_attr = torch.concat((edge_attr_forward, edge_attr_reverse), dim=0) # (E, 4)
         
         # return copy
         return edge_index.clone(), edge_attr.clone()

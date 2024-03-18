@@ -19,6 +19,9 @@ from torch_geometric.utils import from_networkx
 from omegaconf import OmegaConf
 from PIL import Image, ImageDraw
 from operator import add
+from pathlib import Path
+from collections import OrderedDict
+import re
 
 @torch.no_grad()
 def validate(x_val, model, cond=None):
@@ -325,8 +328,8 @@ def load_graph_data(dataset_name, augment = False, train_data_limit = None, val_
         "placement-mid-v0": (90, 10, 60, 60, 1),
         "placement-mid-v1": (1500, 100, 60, 60, 1),
     }
-    dataset_path = os.path.join(os.path.dirname(__file__), f'../datasets/graph/{dataset_name}')
     if dataset_name in dataset_sizes:
+        dataset_path = os.path.join(os.path.dirname(__file__), f'../datasets/graph/{dataset_name}')
         TRAIN_SIZE, VAL_SIZE, chip_width, chip_height, scale = dataset_sizes[dataset_name]
         if train_data_limit is None or train_data_limit == "none":
             train_data_limit = TRAIN_SIZE
@@ -358,6 +361,43 @@ def load_graph_data(dataset_name, augment = False, train_data_limit = None, val_
         if missing_data > 0:
             print(f"WARNING: total of {missing_data} samples not found. Continuing...")
     else:
+        try:
+            return load_synthetic_graph_data(dataset_name, train_data_limit, val_data_limit)
+        except NotImplementedError:
+            raise
+    return train_set, val_set
+
+def load_synthetic_graph_data(dataset_name, train_data_limit = None, val_data_limit = None):
+    dataset_path = os.path.join(os.path.dirname(__file__), '../data-gen/outputs', dataset_name)
+    dataset_sizes = { # train size, val size
+        "debug_gen.61": (9500, 500),
+    }
+    data_files = {int(re.search('\d+', p.name).group()):str(p) for p in Path(dataset_path).rglob("*.pickle")}
+    data_files = OrderedDict(sorted(data_files.items()))
+    if dataset_name in dataset_sizes:
+        TRAIN_SIZE, VAL_SIZE = dataset_sizes[dataset_name]
+        if train_data_limit is None or train_data_limit == "none":
+            train_data_limit = TRAIN_SIZE
+        if val_data_limit is None or val_data_limit == "none":
+            val_data_limit = VAL_SIZE
+        assert train_data_limit <= TRAIN_SIZE and val_data_limit <= VAL_SIZE, "data limits invalid"
+        train_set = []
+        val_set = []
+        for _, data_file in data_files.items():
+            x = open_pickle(data_file)
+            
+            new_len = len(x)
+            train_len = min(train_data_limit-len(train_set), new_len)
+            val_len = min(val_data_limit-len(val_set), new_len-train_len)
+            
+            train_samples = x[:train_len]
+            val_samples = x[train_len:train_len+val_len]
+            train_set.extend(train_samples)
+            val_set.extend(val_samples)
+            
+            if len(train_set) == train_data_limit and len(val_set) == val_data_limit:
+                break
+    else:
         raise NotImplementedError
     return train_set, val_set
 
@@ -369,6 +409,7 @@ def preprocess_graph(x, cond, chip_size, scale = 1000):
     cond.edge_attr = cond.edge_attr.float()
     x = torch.tensor(x / scale, dtype=torch.float32) # TODO fix this
     x = 2 * (x / chip_size) - 1
+    # TODO scale edge attributes accordingly
     return x, cond
 
 def generate_batch_visualizations(x, cond, mask = None):
