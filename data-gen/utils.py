@@ -2,6 +2,7 @@ from omegaconf import OmegaConf
 from PIL import Image, ImageDraw
 import numpy as np
 import torch
+import pickle
 
 def save_cfg(cfg, path):
     with open(path, "w") as f:
@@ -10,7 +11,15 @@ def save_cfg(cfg, path):
 def load_cfg(path):
     with open(path, "r") as f:
         return OmegaConf.load(f)
-    
+
+def load_pickle(path):
+    with open(path, "rb") as f:
+        return pickle.load(f)
+
+def save_pickle(data, path):
+    with open(path, "wb") as f:
+        pickle.dump(data, f)
+
 def visualize(x, attr, mask = None):
     """ 
     Visualizes the X with node attributes, returning an numpy image

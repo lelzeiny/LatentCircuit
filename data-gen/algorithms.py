@@ -3,6 +3,7 @@ import utils
 import torch
 import shapely
 import numpy as np
+from torch_geometric.data import Data
 
 class V1:
     def __init__(
@@ -27,6 +28,7 @@ class V1:
 
     def sample(self):
         # Generate instance sizes TODO use clipped poisson for sizes
+        # TODO maybe do something about instances not connected to anything
         aspect_ratio = get_distribution(**self.aspect_ratio_dist).sample((self.max_instance,))
         long_size = get_distribution(**self.instance_size_dist).sample((self.max_instance,))
         short_size = aspect_ratio * long_size
@@ -75,12 +77,15 @@ class V1:
         edge_exists = get_distribution(**self.edge_dist).sample(terminal_distances) # (V, T, V, T)
         is_source = get_distribution(**self.source_terminal_dist).sample((num_instances, max_num_terminals))
 
-        # delete edges between same instance
-        edge_exists = self.process_edge_matrix(edge_exists, is_source)
+        # delete edges between same instance, among other things
+        edge_exists = self.process_edge_matrix(edge_exists, is_source, num_terminals)
 
-        # TODO convert to edge list and generate attributes
-        import ipdb; ipdb.set_trace()
-        return 1
+        # convert to edge list and generate attributes
+        edge_index, edge_attr = self.generate_edge_list(edge_exists, terminal_offsets)
+        mask = placement.get_mask()
+
+        data = Data(x=sizes, edge_index=edge_index, edge_attr=edge_attr, is_ports=mask)
+        return positions, data
     
     def get_terminal_offsets(self, x_sizes, y_sizes, max_num_terminals, reference="center"):
         # TODO check reference points for these
@@ -121,17 +126,26 @@ class V1:
         distance = torch.norm(delta_pos, p=norm_order, dim=-1) # (V, T, V, T)
         return distance
 
-    def process_edge_matrix(self, edge_exists, is_source):
+    def process_edge_matrix(self, edge_exists, is_source, num_terminals):
         # edge_existence tensor (V, T, V, T)
         # is_source int tensor (V, T) (0=sink, 1=source)
+        # num terminals int tensor (V)
         # process  as follows:
         # remove all edges ending in a source
         # remove all edges originating from a sink
         # remove all edges between same instance
+        # remove all edges starting or ending in nonexistent terminal
         V, T, _, _ = edge_exists.shape
         assert is_source.shape == edge_exists.shape[:2]
-        source_filter = is_source.view(V, T, 1, 1)
-        sink_filter = 1-is_source.view(1, 1, V, T)
+        assert num_terminals.shape == (V,)
+
+        # generate terminal filter
+        terminal_filter = torch.zeros((V, T))
+        for i, num_terminal in enumerate(num_terminals):
+            terminal_filter[i, :num_terminal] = 1
+
+        source_filter = (terminal_filter * is_source).view(V, T, 1, 1)
+        sink_filter = (terminal_filter * (1-is_source)).view(1, 1, V, T)
         self_edge_filter = (1-torch.eye(V)).view(V, 1, V, 1)
         
         edges = edge_exists * source_filter
@@ -140,8 +154,22 @@ class V1:
         return edges
 
     def generate_edge_list(self, edge_exists, terminal_offsets):
-        # TODO
-        return 1
+        V, T, _, _ = edge_exists.shape
+        edges = torch.nonzero(edge_exists) # (E, 4:v,t,v,t) int64
+        edge_index_forward = edges[:,(0,2)]
+        edge_index_reverse = edges[:,(2,0)]
+
+        edge_attr_source = terminal_offsets[edges[:,0], edges[:,1], :] # (E, 2)
+        edge_attr_sink = terminal_offsets[edges[:,2], edges[:,3], :] # (E, 2)
+        edge_attr_forward = torch.concat((edge_attr_source, edge_attr_sink), dim=-1)
+        edge_attr_reverse = torch.concat((edge_attr_sink, edge_attr_source), dim=-1)
+        
+        # create undirected edge index and attr
+        edge_index = torch.concat((edge_index_forward, edge_index_reverse), dim=0)
+        edge_attr = torch.concat((edge_attr_forward, edge_attr_reverse), dim=0)
+        
+        # return copy
+        return edge_index.clone(), edge_attr.clone()
 
 class Placement:
     def __init__(self, x = None, sizes = None, mask = None):
@@ -207,6 +235,10 @@ class Placement:
         # returns tensor(V, 2) of x,y sizes
         sizes = torch.stack((torch.tensor(self.x_size), torch.tensor(self.y_size)), dim=-1)
         return sizes
+    
+    def get_mask(self):
+        mask = torch.tensor(self.is_port)
+        return mask
     
 def plot_placement(positions, sizes, name = "debug_placement"):
     picture = utils.visualize(positions, sizes)

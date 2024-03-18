@@ -7,7 +7,7 @@ dataset_name: debug_gen
 seed: 61
 num_samples: 100
 out_dir: data-gen/outputs
-print_every: 1000
+print_every: 10
 
 gen_params:
   max_instance: 100

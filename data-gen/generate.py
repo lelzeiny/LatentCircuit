@@ -56,8 +56,8 @@ def main(cfg):
         # Generate number of terminals for each instance
         if (int(step)) % cfg.print_every == 0:
             t_2 = time.time()
-            # save batch of outputs
-            
+            # TODO use something better than pickle
+            utils.save_pickle(samples, os.path.join(out_dir, f"{int(step):08d}.pickle"))
             samples = []
             logger.add({
                 "time_elapsed": t_2-t_0, 
