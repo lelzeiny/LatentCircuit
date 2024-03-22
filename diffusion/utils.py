@@ -370,7 +370,7 @@ def load_graph_data(dataset_name, augment = False, train_data_limit = None, val_
 def load_synthetic_graph_data(dataset_name, train_data_limit = None, val_data_limit = None):
     dataset_path = os.path.join(os.path.dirname(__file__), '../data-gen/outputs', dataset_name)
     dataset_sizes = { # train size, val size
-        "debug_gen.61": (9500, 500),
+        "debug_gen.61": (95000, 5000),
     }
     data_files = {int(re.search('\d+', p.name).group()):str(p) for p in Path(dataset_path).rglob("*.pickle")}
     data_files = OrderedDict(sorted(data_files.items()))

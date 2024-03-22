@@ -5,7 +5,7 @@ defaults:
 
 dataset_name: debug_gen
 seed: 61
-num_samples: 20000
+num_samples: 200000
 out_dir: data-gen/outputs
 print_every: 100
 
