@@ -3,7 +3,7 @@ backbone_params:
   edge_features: 4
   cond_node_features: 2
   attention_extra_features: 2
-  hidden_size: 2 # 8
+  hidden_size: 128 # 8
   hidden_node_features: [256, 256] #[256, 256] [64, 128, 128, 64]
   attention_node_features: [32, 32] #[32, 32]
   layers_per_block: 2 # 3 4
@@ -11,4 +11,4 @@ backbone_params:
   num_heads: 4
   ff_num_layers: 2
   ff_size_factor: 1
-  dir_att_input: False
+  dir_att_input: True

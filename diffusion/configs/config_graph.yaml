@@ -2,7 +2,7 @@ defaults:
   - _self_
   - task@_here_: placement-mini-v5
   - model: att-gnn #graph-transformer
-  - model/conv-layer@model.backbone_params: sage
+  - model/conv-layer@model.backbone_params: gat
   - override hydra/hydra_logging: none
   - override hydra/job_logging: stdout
 
@@ -24,7 +24,7 @@ logger:
 implementation: custom
 model:
   mask_key: is_ports
-  use_mask_as_input: False
+  use_mask_as_input: True
   max_diffusion_steps: 1000
   noise_schedule: linear
   encoding_type: sinusoid
