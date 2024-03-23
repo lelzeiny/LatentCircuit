@@ -4,6 +4,7 @@ import torch.nn.functional as F
 import torch.distributions as tfd
 import numpy as np
 import pos_encoding
+from performer_pytorch import SelfAttention
 
 class ViT(nn.Module):
     def __init__(self, num_heads, model_dim, num_layers, ff_num_layers, ff_size_factor, dropout, in_channels, out_channels, device, image_size, pos_encoding_type = "learned", patches_a_side = 16, mode = "classifier", **kwargs):
@@ -106,7 +107,8 @@ class AttentionBlock(nn.Module):
         self.model_dim = model_dim
         self._attn_dropout = nn.Dropout(p = dropout)
         self._ff_dropout = nn.Dropout(p = dropout)
-        self._attn = MultiHeadAttention(num_heads, model_dim//num_heads, model_dim//num_heads, model_dim, model_dim)
+        self._attn = SelfAttention(dim = model_dim, heads = num_heads, causal = False, dim_head=None) # TODO Test performer and replace!
+        # self._attn = MultiHeadAttention(num_heads, model_dim//num_heads, model_dim//num_heads, model_dim, model_dim)
         
         ff_layers = []
         for i in range(ff_num_layers):

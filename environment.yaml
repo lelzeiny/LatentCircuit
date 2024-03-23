@@ -21,3 +21,4 @@ dependencies:
     - hydra-core
     - rich
     - torch-geometric
+    - performer-pytorch
