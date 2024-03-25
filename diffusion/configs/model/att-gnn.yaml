@@ -7,6 +7,7 @@ backbone_params:
   hidden_node_features: [256, 256] #[256, 256] [64, 128, 128, 64]
   attention_node_features: [32, 32] #[32, 32]
   layers_per_block: 2 # 3 4
+  input_encoding_dim: 0
   dropout: 0.0
   num_heads: 4
   ff_num_layers: 2

@@ -127,9 +127,12 @@ class CondDiffusionModel(nn.Module):
         "res_gnn_block": networks.ResGNNBlock, 
         "graph_unet": networks.GraphUNet,
         "att_gnn": networks.AttGNN, # Current best
-        "graph_transformer": networks.GraphTransformer
+        "graph_transformer": networks.GraphTransformer,
         }
-    time_encodings = {"sinusoid": pos_encoding.get_positional_encodings, "none": pos_encoding.get_none_encodings}
+    time_encodings = {
+        "sinusoid": pos_encoding.get_positional_encodings, 
+        "none": pos_encoding.get_none_encodings,
+        }
     # conditioning vec can be arbitrary
     # here we use a torch_geometry object
     def __init__(
@@ -137,8 +140,8 @@ class CondDiffusionModel(nn.Module):
             backbone, 
             backbone_params, 
             input_shape, 
-            encoding_type, 
-            encoding_dim, 
+            t_encoding_type, 
+            t_encoding_dim, 
             max_diffusion_steps = 100, 
             noise_schedule = "linear", 
             mask_key = None, 
@@ -153,7 +156,7 @@ class CondDiffusionModel(nn.Module):
                 backbone_params.update({
                     "in_size": np.prod(input_shape),
                     "out_size": np.prod(input_shape),
-                    "encoding_dim": encoding_dim,
+                    "encoding_dim": t_encoding_dim,
                     "device": device,
                 })
         elif backbone == "unet" or backbone == "cond_unet":
@@ -163,7 +166,7 @@ class CondDiffusionModel(nn.Module):
                     "in_channels": input_shape[0],
                     "out_channels": input_shape[0],
                     "image_shape": (input_shape[1], input_shape[2]),
-                    "cond_dim": encoding_dim,
+                    "cond_dim": t_encoding_dim,
                     "device": device,
                 })
         elif backbone == "vit":
@@ -173,7 +176,7 @@ class CondDiffusionModel(nn.Module):
                     "in_channels": input_shape[0],
                     "out_channels": input_shape[0],
                     "image_size": input_shape[1],
-                    "encoding_dim": encoding_dim,
+                    "encoding_dim": t_encoding_dim,
                     "device": device,
                 })
         elif backbone in ["res_gnn_block", "res_gnn", "graph_unet", "att_gnn", "graph_transformer"]:
@@ -182,14 +185,14 @@ class CondDiffusionModel(nn.Module):
                 backbone_params.update({
                     "in_node_features": input_shape[1],
                     "out_node_features": input_shape[1],
-                    "encoding_dim": encoding_dim,
+                    "t_encoding_dim": t_encoding_dim,
                     "device": device,
                     "mask_key": mask_key if use_mask_as_input else None,
                 })
-        if encoding_dim > 0:
-            self.encoding = CondDiffusionModel.time_encodings[encoding_type](max_diffusion_steps, encoding_dim).to(device)
+        if t_encoding_dim > 0:
+            self.t_encoding = CondDiffusionModel.time_encodings[t_encoding_type](max_diffusion_steps, t_encoding_dim).to(device)
         self.mask_key = mask_key
-        self.encoding_dim = encoding_dim
+        self.t_encoding_dim = t_encoding_dim
         self._reverse_model = CondDiffusionModel.backbones[backbone](**backbone_params)
         self.input_shape = input_shape
         self.max_diffusion_steps = max_diffusion_steps
@@ -285,10 +288,10 @@ class CondDiffusionModel(nn.Module):
     
     def compute_pos_encodings(self, t):
         # t has shape (B,)
-        if self.encoding_dim == 0:
+        if self.t_encoding_dim == 0:
             return None
         B = t.shape[0]
-        encoding = self.encoding[t-1, :].view(B, self.encoding_dim)
+        encoding = self.t_encoding[t-1, :].view(B, self.t_encoding_dim)
         return encoding
 
     def get_mask(self, x, cond):

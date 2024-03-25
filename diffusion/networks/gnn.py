@@ -3,6 +3,7 @@ import torch_geometric as tg
 import torch_geometric.nn as tgn
 import torch.nn as nn
 import torch.functional as F
+import numpy as np
 from .mlp import FiLM, MLP
 from .vit import AttentionBlock
 import networks.layers as layers
@@ -72,22 +73,46 @@ class GConvLayer(nn.Module):
         return self._layer(x, edge_index)
 
 class LinearEncoderLayer(nn.Module):
-    def __init__(self, in_node_features, out_node_features, mask_key=None):
+    def __init__(self, in_node_features, out_node_features, input_encoding_dim=0, mask_key=None, device="cpu"):
+        MAX_FREQ = 100
         super().__init__()
+        assert input_encoding_dim % 2 == 0, "input encoding dimension must be even"
         mask_features = 1 if mask_key is not None else 0
         self._layer = nn.Linear(in_node_features + mask_features, out_node_features)
+        self._encoding_layer = nn.Linear(in_node_features * input_encoding_dim, out_node_features) if input_encoding_dim>0 else None
+        self.input_encoding_dim = input_encoding_dim
+        self.input_encoding_freqs = torch.exp(
+            np.log(MAX_FREQ) * torch.arange(0, self.input_encoding_dim // 2, dtype=torch.float32, device=device) / (self.input_encoding_dim // 2)
+        ).view(1, 1, 1 , self.input_encoding_dim // 2)
         self.mask_key = mask_key
     
     def forward(self, x, cond_data, t_embed):
         node_data = cond_data.x
         node_data = node_data.view(1, *node_data.shape).expand(x.shape[0], -1, -1)
+        spatial_input = torch.concatenate((x, node_data), dim=-1)
         if self.mask_key is not None:
             node_mask = cond_data[self.mask_key]
             node_mask = node_mask.float().view(1, *node_mask.shape, 1).expand(x.shape[0], -1, 1)
-            layer_input = torch.concatenate((x, node_data, node_mask), dim=-1)
+            proj_input = torch.concatenate((spatial_input, node_mask), dim=-1)
         else:
-            layer_input = torch.concatenate((x, node_data), dim=-1)
-        return self._layer(layer_input)
+            proj_input = spatial_input
+        output = self._layer(proj_input)
+        if self._encoding_layer is not None:
+            input_encodings = self.get_input_encoding(spatial_input)
+            input_encodings_proj = self._encoding_layer(input_encodings)
+            output += input_encodings_proj
+        return output
+
+    def get_input_encoding(self, spatial_input):
+        # spatial_input: (B, V, D)
+        B, V, D = spatial_input.shape
+        
+        theta = spatial_input.unsqueeze(dim=-1) * self.input_encoding_freqs
+        embedding = torch.cat([torch.cos(theta), torch.sin(theta)], dim=-1) # (B, V, D, E)
+        embedding = embedding.view(B, V, D * self.input_encoding_dim)
+
+        return embedding
+
 
 class LinearDecoderLayer(nn.Module):
     def __init__(self, in_node_features, out_node_features):
@@ -327,8 +352,9 @@ class AttGNN(nn.Module):
             attention_extra_features,
             edge_features, 
             layers_per_block, 
-            encoding_dim,
+            t_encoding_dim,
             conv_params,
+            input_encoding_dim=0,
             dir_att_input=False,
             mask_key=None,
             dropout=0.0,
@@ -348,7 +374,13 @@ class AttGNN(nn.Module):
         gnn_blocks = []
         self.use_enc = not (hidden_size == in_node_features == out_node_features)
         if self.use_enc:
-            gnn_blocks.append(LinearEncoderLayer(in_node_features + cond_node_features, hidden_size, mask_key=mask_key))
+            gnn_blocks.append(LinearEncoderLayer(
+                in_node_features + cond_node_features, 
+                hidden_size, 
+                mask_key=mask_key, 
+                input_encoding_dim=input_encoding_dim,
+                device=device,
+            ))
         for i, (hidden_node_size, attention_node_size) in enumerate(zip(hidden_node_features, attention_node_features)):
             gnn_blocks.append(ResGNNBlock(
                 in_node_features=hidden_size, # note that this means after each block there is a large bottleneck
@@ -357,7 +389,7 @@ class AttGNN(nn.Module):
                 cond_node_features=cond_node_features,
                 edge_features=edge_features,
                 num_layers=layers_per_block,
-                encoding_dim=encoding_dim,
+                encoding_dim=t_encoding_dim,
                 conv_params=conv_params,
                 residual=True,
                 norm=True,
@@ -372,7 +404,7 @@ class AttGNN(nn.Module):
                 attention_extra_features=attention_extra_features,
                 edge_features=edge_features,
                 num_layers=1,
-                encoding_dim=encoding_dim,
+                encoding_dim=t_encoding_dim,
                 conv_params=conv_params,
                 residual=True,
                 norm=True,
