@@ -11,4 +11,5 @@ backbone_params:
   num_heads: 4
   ff_num_layers: 2
   ff_size_factor: 1
+  att_implementation: flash # NOTE flash requires sm_80 or sm_90. will fallback to mem efficient att
   dir_att_input: True

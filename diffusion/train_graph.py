@@ -126,6 +126,7 @@ def main(cfg):
                 best_loss = val_logs["loss"]
                 checkpointer.save(os.path.join(log_dir, "best.ckpt"))
                 print("saving best model")
+            del x_val; del cond_val
 
         if (cfg.eval_every > 0) and (int(step)) % cfg.eval_every == 0:
             print("generating evaluation report")
@@ -137,7 +138,8 @@ def main(cfg):
             print(f"generated report in {t4-t3:.3f} sec")
             checkpointer.save(os.path.join(log_dir, f"eval_{int(step)}.ckpt"))
             print(f"saving model at step {int(step)}")
-
+        
+        del x; del cond; del loss; del t
     # output eval samples
     utils.save_outputs(val_set, model, cfg.num_output_samples, save_folder=sample_dir, output_number_offset=3300)
 

@@ -215,7 +215,7 @@ class AttGNNBlock(nn.Module):
                 **conv_params
                 ))
             att_model_size = hidden_node_features + cond_node_features + attention_extra_features
-            self._attention_layers.append(AttentionBlock(kwargs["num_heads"], att_model_size, kwargs["ff_num_layers"], kwargs["ff_size_factor"], dropout))
+            self._attention_layers.append(AttentionBlock(kwargs["num_heads"], att_model_size, kwargs["ff_num_layers"], kwargs["ff_size_factor"], dropout, att_implementation = kwargs["att_implementation"]))
             self._linear_layers.append(nn.Linear(att_model_size, out_features))
         
         self.use_edge_attr = accepts_edge_attr(self._gconv_layers[0])

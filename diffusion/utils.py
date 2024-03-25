@@ -500,7 +500,7 @@ class GraphDataLoader:
         assert split in ("train", "val"), "split argument has to be one of 'train' or 'val'"
         dataset = self.train_set if split=="train" else self.val_set
         batch_size = self.train_batch_size if split=="train" else self.val_batch_size
-        idx = torch.randint(0, len(dataset), [1], device = self.device) # TODO support larger batch sizes
+        idx = torch.randint(0, len(dataset), [1]) # TODO support larger batch sizes
         x, y = dataset[idx]
         return x.to(self.device).view(1, *x.shape).expand(batch_size, *x.shape), y.to(self.device)
 
