@@ -188,6 +188,7 @@ def generate_report(num_samples, dataloader, model, logger, policy = "iterative"
         sample_metrics = display_graph_samples(1, x_eval, cond_eval, model, logger, prefix = "eval", eval_function = eval_samples, policy = policy)
         for sample_metric in sample_metrics:
             metrics.add(sample_metric)
+        cond_eval.to(device = "cpu")
     # compile metrics and compute stats
     logger.add(metrics.result(), prefix = "eval")
 
@@ -743,3 +744,5 @@ def check_legality_new(x, y, attr, mask, score=True):
     else:
         return insts_overlap == insts_area
 
+def debug_mem():
+    print("Allocated: ", torch.cuda.memory_allocated(), "Reserved: ", torch.cuda.memory_reserved())
