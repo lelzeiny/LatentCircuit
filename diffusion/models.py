@@ -316,6 +316,80 @@ class CondDiffusionModel(nn.Module):
         else:
             return self._lossfn(x, target)
 
+class GuidedDiffusionModel(CondDiffusionModel):
+    # Uses potential-based guidance for sampling
+    def __init__(
+            self, 
+            backbone, 
+            backbone_params, 
+            input_shape, 
+            t_encoding_type, 
+            t_encoding_dim,
+            guidance_weight,
+            guidance_step, 
+            max_diffusion_steps = 100, 
+            noise_schedule = "linear", 
+            mask_key = None, 
+            use_mask_as_input = False,
+            device = "cpu", 
+            **kwargs
+        ):
+        self.guidance_weight = guidance_weight
+        self.guidance_step = guidance_step
+        super().__init__(
+            backbone, 
+            backbone_params, 
+            input_shape, 
+            t_encoding_type, 
+            t_encoding_dim, 
+            max_diffusion_steps = max_diffusion_steps, 
+            noise_schedule = noise_schedule, 
+            mask_key = mask_key, 
+            use_mask_as_input = use_mask_as_input, 
+            device = device, 
+            **kwargs
+        )
+    
+    def reverse_samples(self, B, x_in, cond, intermediate_every = 0, mask_override = None):
+        # B: batch size
+        # intermediate_every: determines how often intermediate diffusion steps are saved and returned. 0 = no intermediates returned
+        if self.modality == "image":
+            batch_shape = (B, *self.input_shape)
+            mask_shape = (1, x_in.shape[1], 1, 1)
+        else: # graphs
+            batch_shape = (B, cond.x.shape[0], self.input_shape[1])
+            mask_shape = (1, x_in.shape[1], 1)
+        x = self._epsilon_dist.sample(batch_shape).squeeze(dim = -1) # (B, C, H, W)
+        mask = mask_override.view(*mask_shape) if mask_override is not None else self.get_mask(x_in, cond)
+        x = torch.where(mask, x_in, x) if mask is not None else x
+        intermediates = [x]
+        import ipdb; ipdb.set_trace()
+        for t in range(self.max_diffusion_steps, 0 , -1):
+            t_vec = torch.tensor(t, device=x.device).expand(B)
+            z = self._epsilon_dist.sample(batch_shape).squeeze(dim = -1) if t>1 else torch.zeros_like(x)
+            x_denoised = (1.0/torch.sqrt(1 - self._beta[t-1])) * (x - (self._beta[t-1]/self._sqrt_alpha_bar_complement[t-1]) * self(x, cond, t_vec))
+            # don't denoise things covered by mask
+            x = torch.where(mask, x, x_denoised) if mask is not None else x_denoised
+            if intermediate_every and t>1 and t % intermediate_every == 0:
+                intermediates.append(x)
+            x_perturbed = x + self._sigma[t-1] * z
+            # don't perturb things covered by mask
+            x = torch.where(mask, x, x_perturbed) if mask is not None else x_perturbed
+        
+        intermediates.append(x) # append final image
+        # normalize x
+        if self.modality == "image":
+            x_max = torch.amax(x, dim=(1,2,3), keepdim=True)
+            x_min = torch.amin(x, dim=(1,2,3), keepdim=True)
+            x_normalized = (x - x_min)/(x_max - x_min)
+        else:
+            x_normalized = x
+        return x_normalized, intermediates
+
+    def guidance_force(self):
+        # TODO write this
+        return 0
+
 def get_linear_sched(T, beta_1, beta_T):
     # returns noise schedule beta as numpy array with shape (T)
     return np.linspace(beta_1, beta_T, T)

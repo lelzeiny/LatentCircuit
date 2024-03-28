@@ -129,15 +129,14 @@ def main(cfg):
             cond_val.to(device="cpu")
 
         if (cfg.eval_every > 0) and (int(step)) % cfg.eval_every == 0:
+            print(f"saving model at step {int(step)}")
+            checkpointer.save(os.path.join(log_dir, f"step_{int(step)}.ckpt"))
             print("generating evaluation report")
             t3 = time.time()
             utils.generate_report(cfg.eval_samples, dataloader, model, logger, policy = cfg.eval_policy)
-            checkpointer.save(os.path.join(log_dir, f"step_{int(step)}.ckpt"))
             logger.write()
             t4 = time.time()
             print(f"generated report in {t4-t3:.3f} sec")
-            checkpointer.save(os.path.join(log_dir, f"eval_{int(step)}.ckpt"))
-            print(f"saving model at step {int(step)}")
         
         cond.to(device="cpu")
     # output eval samples
